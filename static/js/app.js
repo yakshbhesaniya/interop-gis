@@ -48,7 +48,7 @@ document.addEventListener("DOMContentLoaded", () => {
         wfsBtnRun: document.getElementById('wfsBtnRun')
     };
 
-    // 1. Initialize OpenLayers Map with OSM Base
+    // OpenLayers Map with OSM Base
     const map = new ol.Map({
         target: 'map',
         layers: [
@@ -226,7 +226,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 2. OK Button -> GetCapabilities Request
+    // WMS GetCapabilities Request
     el.btnOk.addEventListener('click', async () => {
         let url = el.urlInput.value.trim();
         if (!url) {
@@ -338,7 +338,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // 3. RUN Button -> Execute GetMap (Adds to OpenLayers)
+    // Execute GetMap
     el.btnRun.addEventListener('click', () => {
         const layerName = el.layerSelect.value;
         if (!layerName) return;
@@ -380,7 +380,7 @@ document.addEventListener("DOMContentLoaded", () => {
         state.layers.unshift(newLayer);
         updateLayerManagerUI();
 
-        // Adjust view manually if BBox coords are provided.
+        // Adjust view manually if BBox coords are provided
         if (!isNaN(top) && !isNaN(left) && !isNaN(bottom) && !isNaN(right)) {
             try {
                 const extent = ol.proj.transformExtent([left, bottom, right, top], 'EPSG:4326', map.getView().getProjection());
@@ -396,7 +396,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // 4. Map Click -> GetFeatureInfo / Vector Selection
+    // GetFeatureInfo 
     map.on('singleclick', async (evt) => {
         if (state.layers.length === 0) return;
 
@@ -404,7 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
         el.attrTableContainer.innerHTML = '<div class="text-center mt-3"><div class="spinner-border spinner-border-sm text-primary"></div> Loading attributes...</div>';
         showAttributeTable({});
 
-        // 1. Check if WFS feature clicked
+        // Check if WFS feature clicked
         const feature = map.forEachFeatureAtPixel(evt.pixel, (feat) => feat, {
             hitTolerance: 5 // 5 pixels tolerance for easier clicking on lines/points
         });
@@ -415,7 +415,7 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        // 2. Check topmost WMS layer
+        // Check topmost WMS layer
         let topmostWmsLayer = null;
         for (let i = 0; i < state.layers.length; i++) {
             if (state.layers[i].getVisible() && state.layers[i].getProperties().type === 'WMS') {
@@ -456,7 +456,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // WFS OK Button -> GetCapabilities Request
+    // WFS GetCapabilities Request
     if (el.wfsBtnOk) {
         el.wfsBtnOk.addEventListener('click', async () => {
             let url = el.wfsUrlInput.value.trim();
@@ -501,7 +501,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 state.wfsUrl = url;
 
                 // Extract feature types
-                // WFS 1.1.0 typically uses FeatureType
                 const featureTypes = Array.from(xmlDoc.getElementsByTagName('FeatureType'));
                 let validLayers = '<option value="" selected>-- Select a Feature Type --</option>';
                 let count = 0;
@@ -573,7 +572,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // WFS RUN Button -> Execute GetFeature
+    // WFS Execute GetFeature
     if (el.wfsBtnRun) {
         el.wfsBtnRun.addEventListener('click', async () => {
             const layerName = el.wfsLayerSelect.value;

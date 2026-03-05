@@ -24,15 +24,12 @@
             <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="#">
                 <i class="bi bi-globe-americas fs-4"></i> GIS Web Client
             </a>
-            <span class="navbar-text text-white-75 small fw-semibold">
-                Client-Server Interoperability Project
-            </span>
         </div>
     </nav>
 
     <div class="container-fluid py-3 main-container">
         <div class="row h-100 g-3">
-            <!-- Left Panel: Controls -->
+            <!-- Left Panel -->
             <div class="col-md-4 col-lg-3 h-100 d-flex flex-column">
                 <div class="card shadow border-0 h-100 flex-grow-1 rounded-4">
                     <div class="card-header bg-white border-bottom-0 pb-0 pt-3 rounded-top-4">
@@ -283,7 +280,7 @@
                 </div>
             </div>
 
-            <!-- Right Panel: Map & XML -->
+            <!-- Right Panel -->
             <div class="col-md-8 col-lg-9 h-100 d-flex flex-column gap-3">
 
                 <!-- Map View -->
@@ -329,12 +326,12 @@
                         </div>
                     </div>
                     <div class="card-body p-0 rounded-bottom-4 overflow-hidden position-relative">
-                        <!-- Attribute Table Container -->
+                        <!-- Attribute Table -->
                         <div id="attributeTableContainer" class="w-100 h-100 bg-white p-3 overflow-auto"
                             style="display: none;">
                             <h6 class="text-muted text-center mt-3">Click on a feature to view attributes...</h6>
                         </div>
-                        <!-- Log / Textarea Container -->
+                        <!-- Log -->
                         <textarea id="xmlResponseTextarea"
                             class="form-control h-100 border-0 rounded-0 font-monospace text-light p-3 position-absolute top-0 start-0 z-1"
                             readonly spellcheck="false" placeholder="Awaiting server queries..."></textarea>
