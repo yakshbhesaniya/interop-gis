@@ -9,7 +9,8 @@ body {
 
 .main-container {
     flex-grow: 1;
-    height: calc(100vh - 56px); /* Total height minus navbar */
+    height: calc(100vh - 56px);
+    /* Total height minus navbar */
     overflow: hidden;
 }
 
@@ -21,11 +22,11 @@ body {
 /* Make layout flexible and smooth */
 .card {
     transition: all 0.2s ease;
-    border: 1px solid rgba(0,0,0,0.05) !important;
+    border: 1px solid rgba(0, 0, 0, 0.05) !important;
 }
 
 .card-header {
-    border-bottom: 1px solid rgba(0,0,0,0.05) !important;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05) !important;
 }
 
 /* Right Panel Splitting */
@@ -35,7 +36,8 @@ body {
 }
 
 .xml-panel-card {
-    height: calc(40% - 1rem); /* 40% minus the gap */
+    height: calc(40% - 1rem);
+    /* 40% minus the gap */
     min-height: 200px;
 }
 
@@ -54,10 +56,18 @@ body {
 #xmlResponseTextarea {
     resize: none;
     font-size: 0.85rem;
-    background-color: #0f172a !important; /* Tailwind slate-900 */
+    background-color: #0f172a !important;
+    /* Tailwind slate-900 */
     border-bottom-left-radius: 12px !important;
     border-bottom-right-radius: 12px !important;
-    color: #38bdf8 !important; /* Tailwind sky-400 */
+    color: #38bdf8 !important;
+    /* Tailwind sky-400 */
+    transition: opacity 0.2s ease;
+}
+
+#xmlResponseTextarea.z-1 {
+    opacity: 0;
+    pointer-events: none;
 }
 
 #xmlResponseTextarea:focus {
@@ -70,22 +80,28 @@ body {
     width: 8px;
     height: 8px;
 }
+
 ::-webkit-scrollbar-track {
-    background: transparent; 
+    background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
-    background: #cbd5e1; 
+    background: #cbd5e1;
     border-radius: 10px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8; 
+    background: #94a3b8;
 }
 
 /* Better inputs */
-.form-control, .form-select {
+.form-control,
+.form-select {
     border-color: #cbd5e1;
 }
-.form-control:focus, .form-select:focus {
+
+.form-control:focus,
+.form-select:focus {
     border-color: #3b82f6;
     box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25);
 }

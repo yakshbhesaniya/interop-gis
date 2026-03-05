@@ -5,7 +5,7 @@ document.addEventListener("DOMContentLoaded", () => {
         wmsUrl: '',
         wfsCapabilitiesDoc: null,
         wfsUrl: '',
-        currentLayer: null
+        layers: []
     };
 
     // DOM Elements
@@ -25,7 +25,11 @@ document.addEventListener("DOMContentLoaded", () => {
         infoY: document.getElementById('infoY'),
         btnRun: document.getElementById('btnRun'),
         xmlPanel: document.getElementById('xmlResponseTextarea'),
+        attrTableContainer: document.getElementById('attributeTableContainer'),
         btnClearXml: document.getElementById('btnClearXml'),
+        btnToggleLog: document.getElementById('btnToggleLog'),
+        layerList: document.getElementById('layerList'),
+        noLayersMsg: document.getElementById('noLayersMsg'),
         loadingIndicator: document.getElementById('loadingIndicator'),
         mapCoords: document.getElementById('mapCoords'),
         mapOverlay: document.getElementById('mapOverlay'),
@@ -108,6 +112,120 @@ document.addEventListener("DOMContentLoaded", () => {
         el.xmlPanel.scrollTop = el.xmlPanel.scrollHeight;
     }
 
+    let logsVisible = false;
+    if (el.btnToggleLog) {
+        el.btnToggleLog.addEventListener('click', () => {
+            logsVisible = !logsVisible;
+            if (logsVisible) {
+                el.xmlPanel.classList.remove('z-1');
+                el.xmlPanel.classList.add('z-3');
+                el.attrTableContainer.style.display = 'none';
+            } else {
+                el.xmlPanel.classList.remove('z-3');
+                el.xmlPanel.classList.add('z-1');
+                el.attrTableContainer.style.display = 'block';
+            }
+        });
+    }
+
+    function showAttributeTable(properties) {
+        el.attrTableContainer.style.display = 'block';
+        el.xmlPanel.classList.remove('z-3');
+        el.xmlPanel.classList.add('z-1');
+        logsVisible = false;
+
+        if (!properties || Object.keys(properties).length === 0) {
+            el.attrTableContainer.innerHTML = '<h6 class="text-muted text-center mt-3">No attributes found for this feature.</h6>';
+            return;
+        }
+
+        let html = '<table class="table table-sm table-bordered table-striped mt-2"><thead class="table-light"><tr><th>Attribute</th><th>Value</th></tr></thead><tbody>';
+        for (const [key, value] of Object.entries(properties)) {
+            if (key === 'geometry' || key === 'the_geom') continue;
+            let valStr = value;
+            if (typeof value === 'object') valStr = JSON.stringify(value);
+            html += `<tr><td class="fw-bold text-secondary text-truncate" style="max-width:120px;" title="${key}">${key}</td><td class="text-truncate" style="max-width:200px;" title="${valStr}">${valStr}</td></tr>`;
+        }
+        html += '</tbody></table>';
+        el.attrTableContainer.innerHTML = html;
+    }
+
+    function updateLayerManagerUI() {
+        if (state.layers.length === 0) {
+            el.layerList.innerHTML = '<li class="list-group-item text-muted text-center py-4" id="noLayersMsg">No layers added yet.</li>';
+            return;
+        }
+
+        el.layerList.innerHTML = '';
+        state.layers.forEach((layer, index) => {
+            const props = layer.getProperties();
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center py-2';
+
+            const isChecked = layer.getVisible() ? 'checked' : '';
+            const typeClass = props.type === 'WMS' ? 'primary' : 'success';
+
+            li.innerHTML = `
+                <div class="d-flex align-items-center gap-2" style="width: 65%;">
+                    <input class="form-check-input mt-0 layer-vis-toggle" type="checkbox" data-index="${index}" ${isChecked}>
+                    <span class="badge bg-${typeClass}">${props.type}</span>
+                    <span class="fw-medium text-truncate" style="font-size: 0.9rem;" title="${props.name}">${props.name}</span>
+                </div>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary py-0 px-1 layer-up" data-index="${index}" title="Move Up"><i class="bi bi-arrow-up-short border-0 fs-5"></i></button>
+                    <button class="btn btn-outline-secondary py-0 px-1 layer-down" data-index="${index}" title="Move Down"><i class="bi bi-arrow-down-short border-0 fs-5"></i></button>
+                    <button class="btn btn-outline-danger py-0 px-2 layer-remove" data-index="${index}" title="Remove"><i class="bi bi-x border-0 fs-5"></i></button>
+                </div>
+            `;
+            el.layerList.appendChild(li);
+        });
+
+        const total = state.layers.length;
+        state.layers.forEach((layer, idx) => {
+            layer.setZIndex(total - idx);
+        });
+
+        document.querySelectorAll('.layer-vis-toggle').forEach(chk => {
+            chk.addEventListener('change', (e) => {
+                const idx = parseInt(e.target.getAttribute('data-index'));
+                state.layers[idx].setVisible(e.target.checked);
+            });
+        });
+
+        document.querySelectorAll('.layer-up').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(e.currentTarget.getAttribute('data-index'));
+                if (idx > 0) {
+                    const temp = state.layers[idx];
+                    state.layers[idx] = state.layers[idx - 1];
+                    state.layers[idx - 1] = temp;
+                    updateLayerManagerUI();
+                }
+            });
+        });
+
+        document.querySelectorAll('.layer-down').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(e.currentTarget.getAttribute('data-index'));
+                if (idx < state.layers.length - 1) {
+                    const temp = state.layers[idx];
+                    state.layers[idx] = state.layers[idx + 1];
+                    state.layers[idx + 1] = temp;
+                    updateLayerManagerUI();
+                }
+            });
+        });
+
+        document.querySelectorAll('.layer-remove').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const idx = parseInt(e.currentTarget.getAttribute('data-index'));
+                map.removeLayer(state.layers[idx]);
+                state.layers.splice(idx, 1);
+                updateLayerManagerUI();
+            });
+        });
+    }
+
     // 2. OK Button -> GetCapabilities Request
     el.btnOk.addEventListener('click', async () => {
         let url = el.urlInput.value.trim();
@@ -121,7 +239,7 @@ document.addEventListener("DOMContentLoaded", () => {
             el.urlInput.value = url;
         }
 
-        const getCapUrl = `/proxy?url=${encodeURIComponent(url)}&request=GetCapabilities&service=WMS&version=1.3.0`;
+        const getCapUrl = `${url}?request=GetCapabilities&service=WMS&version=1.3.0`;
 
         // UI States
         el.btnOk.disabled = true;
@@ -225,8 +343,6 @@ document.addEventListener("DOMContentLoaded", () => {
         const layerName = el.layerSelect.value;
         if (!layerName) return;
 
-        if (state.currentLayer) map.removeLayer(state.currentLayer);
-
         const format = el.formatSelect.value;
         const srs = el.srsSelect.value;
         const top = parseFloat(el.bboxTop.value);
@@ -236,26 +352,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
         logXml(`Executing GetMap for layer: ${layerName}`);
 
-        // Construct WMS layer using OpenLayers ImageWMS & our Proxy
         const wmsSource = new ol.source.ImageWMS({
-            url: '/proxy?url=' + encodeURIComponent(state.wmsUrl),
+            url: state.wmsUrl,
             params: {
                 'LAYERS': layerName,
                 'FORMAT': format,
-                'SRS': srs
-                // Size and Exact Bbox are natively injected by OpenLayers when it calculates the Map View,
-                // making it highly interoperable.
+                'SRS': srs,
+                'TRANSPARENT': true
             },
-            serverType: 'geoserver',
-            crossOrigin: 'anonymous'
+            serverType: 'geoserver'
         });
 
-        state.currentLayer = new ol.layer.Image({
+        const newLayer = new ol.layer.Image({
             source: wmsSource,
-            opacity: 0.8
+            opacity: 1.0,
+            properties: { id: Date.now(), name: layerName, type: 'WMS' }
         });
 
-        // Set Loading Events
         wmsSource.on('imageloadstart', () => { el.mapOverlay.style.display = 'block'; });
         wmsSource.on('imageloadend', () => { el.mapOverlay.style.display = 'none'; });
         wmsSource.on('imageloaderror', () => {
@@ -263,7 +376,9 @@ document.addEventListener("DOMContentLoaded", () => {
             logXml(`Error: Failed to load ImageWMS layer.`);
         });
 
-        map.addLayer(state.currentLayer);
+        map.addLayer(newLayer);
+        state.layers.unshift(newLayer);
+        updateLayerManagerUI();
 
         // Adjust view manually if BBox coords are provided.
         if (!isNaN(top) && !isNaN(left) && !isNaN(bottom) && !isNaN(right)) {
@@ -281,29 +396,63 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // 4. Map Click -> GetFeatureInfo
+    // 4. Map Click -> GetFeatureInfo / Vector Selection
     map.on('singleclick', async (evt) => {
-        if (!state.currentLayer) return;
+        if (state.layers.length === 0) return;
 
         logXml(`Fetching Feature Info for Map Click at pixel [${Math.round(evt.pixel[0])}, ${Math.round(evt.pixel[1])}]...`);
+        el.attrTableContainer.innerHTML = '<div class="text-center mt-3"><div class="spinner-border spinner-border-sm text-primary"></div> Loading attributes...</div>';
+        showAttributeTable({});
 
-        const viewResolution = map.getView().getResolution();
-        const url = state.currentLayer.getSource().getFeatureInfoUrl(
-            evt.coordinate,
-            viewResolution,
-            map.getView().getProjection(),
-            { 'INFO_FORMAT': 'text/xml' }
-        );
+        // 1. Check if WFS feature clicked
+        const feature = map.forEachFeatureAtPixel(evt.pixel, (feat) => feat, {
+            hitTolerance: 5 // 5 pixels tolerance for easier clicking on lines/points
+        });
 
-        if (url) {
-            try {
-                const response = await fetch(url);
-                if (!response.ok) throw new Error("Feature Info Failed");
-                const text = await response.text();
-                logXml(`Feature Info Response:\n${formatXml(text)}`);
-            } catch (err) {
-                logXml(`Error: ${err.message}`);
+        if (feature) {
+            logXml(`WFS Feature Clicked. Showing attributes.`);
+            showAttributeTable(feature.getProperties());
+            return;
+        }
+
+        // 2. Check topmost WMS layer
+        let topmostWmsLayer = null;
+        for (let i = 0; i < state.layers.length; i++) {
+            if (state.layers[i].getVisible() && state.layers[i].getProperties().type === 'WMS') {
+                topmostWmsLayer = state.layers[i];
+                break;
             }
+        }
+
+        if (topmostWmsLayer) {
+            const viewResolution = map.getView().getResolution();
+            const url = topmostWmsLayer.getSource().getFeatureInfoUrl(
+                evt.coordinate,
+                viewResolution,
+                map.getView().getProjection(),
+                { 'INFO_FORMAT': 'application/json' }
+            );
+
+            if (url) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error("Feature Info Failed");
+                    const json = await response.json();
+
+                    if (json && json.features && json.features.length > 0) {
+                        logXml(`WMS Feature Info Success.`);
+                        showAttributeTable(json.features[0].properties);
+                    } else {
+                        logXml(`No WMS features found at this location.`);
+                        el.attrTableContainer.innerHTML = '<h6 class="text-muted text-center mt-3">No features matched at this point.</h6>';
+                    }
+                } catch (err) {
+                    logXml(`Error getting WMS info: ${err.message}`);
+                    el.attrTableContainer.innerHTML = `<h6 class="text-danger text-center mt-3">${err.message}</h6>`;
+                }
+            }
+        } else {
+            el.attrTableContainer.innerHTML = '<h6 class="text-muted text-center mt-3">No visible features to query.</h6>';
         }
     });
 
@@ -321,7 +470,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 el.wfsUrlInput.value = url;
             }
 
-            const getCapUrl = `/proxy?url=${encodeURIComponent(url)}&request=GetCapabilities&service=WFS&version=1.1.0`;
+            const getCapUrl = `${url}?request=GetCapabilities&service=WFS&version=1.1.0`;
 
             // UI States
             el.wfsBtnOk.disabled = true;
@@ -430,8 +579,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const layerName = el.wfsLayerSelect.value;
             if (!layerName) return;
 
-            if (state.currentLayer) map.removeLayer(state.currentLayer);
-
             const format = el.wfsFormatSelect.value;
             const srs = el.wfsSrsSelect.value;
             const featureId = el.wfsFeatureId.value.trim();
@@ -440,7 +587,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const bottom = parseFloat(el.wfsBboxBottom.value);
             const right = parseFloat(el.wfsBboxRight.value);
 
-            let reqUrl = `/proxy?url=${encodeURIComponent(state.wfsUrl)}&request=GetFeature&service=WFS&version=1.1.0&typeName=${layerName}&outputFormat=${encodeURIComponent(format)}&srsName=${srs}`;
+            let reqUrl = `${state.wfsUrl}?request=GetFeature&service=WFS&version=1.1.0&typeName=${layerName}&outputFormat=${encodeURIComponent(format)}&srsName=${srs}`;
 
             if (featureId) {
                 reqUrl += `&featureID=${featureId}`;
@@ -479,8 +626,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         })
                     });
 
-                    state.currentLayer = new ol.layer.Vector({
+                    const newLayer = new ol.layer.Vector({
                         source: vectorSource,
+                        properties: { id: Date.now(), name: layerName, type: 'WFS' },
                         style: new ol.style.Style({
                             stroke: new ol.style.Stroke({
                                 color: 'blue',
@@ -496,7 +644,9 @@ document.addEventListener("DOMContentLoaded", () => {
                         })
                     });
 
-                    map.addLayer(state.currentLayer);
+                    map.addLayer(newLayer);
+                    state.layers.unshift(newLayer);
+                    updateLayerManagerUI();
 
                     try {
                         const extent = vectorSource.getExtent();
