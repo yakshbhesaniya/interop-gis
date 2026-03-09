@@ -57,17 +57,10 @@ body {
     resize: none;
     font-size: 0.85rem;
     background-color: #0f172a !important;
-    /* Tailwind slate-900 */
     border-bottom-left-radius: 12px !important;
     border-bottom-right-radius: 12px !important;
     color: #38bdf8 !important;
-    /* Tailwind sky-400 */
     transition: opacity 0.2s ease;
-}
-
-#xmlResponseTextarea.z-1 {
-    opacity: 0;
-    pointer-events: none;
 }
 
 #xmlResponseTextarea:focus {

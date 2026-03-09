@@ -1,5 +1,4 @@
 document.addEventListener("DOMContentLoaded", () => {
-    // App State
     const state = {
         capabilitiesDoc: null,
         wmsUrl: '',
@@ -19,8 +18,7 @@ document.addEventListener("DOMContentLoaded", () => {
         bboxLeft: document.getElementById('bboxLeft'),
         bboxRight: document.getElementById('bboxRight'),
         bboxBottom: document.getElementById('bboxBottom'),
-        sizeWidth: document.getElementById('sizeWidth'),
-        sizeHeight: document.getElementById('sizeHeight'),
+
         infoX: document.getElementById('infoX'),
         infoY: document.getElementById('infoY'),
         btnRun: document.getElementById('btnRun'),
@@ -44,11 +42,11 @@ document.addEventListener("DOMContentLoaded", () => {
         wfsBboxLeft: document.getElementById('wfsBboxLeft'),
         wfsBboxRight: document.getElementById('wfsBboxRight'),
         wfsBboxBottom: document.getElementById('wfsBboxBottom'),
-        wfsFeatureId: document.getElementById('wfsFeatureId'),
+
         wfsBtnRun: document.getElementById('wfsBtnRun')
     };
 
-    // OpenLayers Map with OSM Base
+    // Initialize OpenLayers Map with OSM Base
     const map = new ol.Map({
         target: 'map',
         layers: [
@@ -112,39 +110,64 @@ document.addEventListener("DOMContentLoaded", () => {
         el.xmlPanel.scrollTop = el.xmlPanel.scrollHeight;
     }
 
-    let logsVisible = false;
+    let logsVisible = true;
+
+    function updateToggleLogBtn() {
+        if (!el.btnToggleLog) return;
+        if (logsVisible) {
+            el.btnToggleLog.innerHTML = '<i class="bi bi-table me-1"></i> Table';
+        } else {
+            el.btnToggleLog.innerHTML = '<i class="bi bi-terminal me-1"></i> Logs';
+        }
+    }
+    updateToggleLogBtn();
+
     if (el.btnToggleLog) {
         el.btnToggleLog.addEventListener('click', () => {
             logsVisible = !logsVisible;
             if (logsVisible) {
-                el.xmlPanel.classList.remove('z-1');
-                el.xmlPanel.classList.add('z-3');
+                el.xmlPanel.style.display = 'block';
                 el.attrTableContainer.style.display = 'none';
             } else {
-                el.xmlPanel.classList.remove('z-3');
-                el.xmlPanel.classList.add('z-1');
+                el.xmlPanel.style.display = 'none';
                 el.attrTableContainer.style.display = 'block';
             }
+            updateToggleLogBtn();
         });
     }
 
     function showAttributeTable(properties) {
+        // Switch panels: hide log, show attribute table
+        el.xmlPanel.style.display = 'none';
         el.attrTableContainer.style.display = 'block';
-        el.xmlPanel.classList.remove('z-3');
-        el.xmlPanel.classList.add('z-1');
         logsVisible = false;
+        updateToggleLogBtn();
 
-        if (!properties || Object.keys(properties).length === 0) {
+        // Filter out geometry keys and OL geometry objects
+        const filtered = {};
+        if (properties) {
+            for (const [key, value] of Object.entries(properties)) {
+                if (key === 'geometry' || key === 'the_geom' || key === 'geom' || key === 'boundedBy') continue;
+                if (value && typeof value === 'object' && typeof value.getType === 'function') continue;
+                filtered[key] = value;
+            }
+        }
+
+        if (Object.keys(filtered).length === 0) {
             el.attrTableContainer.innerHTML = '<h6 class="text-muted text-center mt-3">No attributes found for this feature.</h6>';
             return;
         }
 
-        let html = '<table class="table table-sm table-bordered table-striped mt-2"><thead class="table-light"><tr><th>Attribute</th><th>Value</th></tr></thead><tbody>';
-        for (const [key, value] of Object.entries(properties)) {
-            if (key === 'geometry' || key === 'the_geom') continue;
-            let valStr = value;
-            if (typeof value === 'object') valStr = JSON.stringify(value);
-            html += `<tr><td class="fw-bold text-secondary text-truncate" style="max-width:120px;" title="${key}">${key}</td><td class="text-truncate" style="max-width:200px;" title="${valStr}">${valStr}</td></tr>`;
+        let html = '<table class="table table-sm table-bordered table-striped mt-2"><thead class="table-dark"><tr><th>Attribute</th><th>Value</th></tr></thead><tbody>';
+        for (const [key, value] of Object.entries(filtered)) {
+            let valStr = (value === null || value === undefined) ? '' : value;
+            if (typeof value === 'object') {
+                try { valStr = JSON.stringify(value); } catch (e) { valStr = '[Object]'; }
+            }
+            if (typeof valStr === 'string') {
+                valStr = valStr.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            }
+            html += `<tr><td class="fw-bold text-secondary text-truncate" style="max-width:140px;" title="${key}">${key}</td><td style="max-width:220px; word-break:break-word;" title="${valStr}">${valStr}</td></tr>`;
         }
         html += '</tbody></table>';
         el.attrTableContainer.innerHTML = html;
@@ -226,7 +249,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // WMS GetCapabilities Request
+    // GetCapabilities 
     el.btnOk.addEventListener('click', async () => {
         let url = el.urlInput.value.trim();
         if (!url) {
@@ -338,7 +361,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Execute GetMap
+    // GetMap
     el.btnRun.addEventListener('click', () => {
         const layerName = el.layerSelect.value;
         if (!layerName) return;
@@ -380,7 +403,7 @@ document.addEventListener("DOMContentLoaded", () => {
         state.layers.unshift(newLayer);
         updateLayerManagerUI();
 
-        // Adjust view manually if BBox coords are provided
+        // Adjust view manually if BBox coords are provided.
         if (!isNaN(top) && !isNaN(left) && !isNaN(bottom) && !isNaN(right)) {
             try {
                 const extent = ol.proj.transformExtent([left, bottom, right, top], 'EPSG:4326', map.getView().getProjection());
@@ -396,7 +419,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // GetFeatureInfo 
+    // GetFeatureInfo
     map.on('singleclick', async (evt) => {
         if (state.layers.length === 0) return;
 
@@ -456,7 +479,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // WFS GetCapabilities Request
+    // WFS GetCapabilities 
     if (el.wfsBtnOk) {
         el.wfsBtnOk.addEventListener('click', async () => {
             let url = el.wfsUrlInput.value.trim();
@@ -572,7 +595,7 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // WFS Execute GetFeature
+    // WFS GetFeature
     if (el.wfsBtnRun) {
         el.wfsBtnRun.addEventListener('click', async () => {
             const layerName = el.wfsLayerSelect.value;
@@ -580,7 +603,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const format = el.wfsFormatSelect.value;
             const srs = el.wfsSrsSelect.value;
-            const featureId = el.wfsFeatureId.value.trim();
             const top = parseFloat(el.wfsBboxTop.value);
             const left = parseFloat(el.wfsBboxLeft.value);
             const bottom = parseFloat(el.wfsBboxBottom.value);
@@ -588,10 +610,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
             let reqUrl = `${state.wfsUrl}?request=GetFeature&service=WFS&version=1.1.0&typeName=${layerName}&outputFormat=${encodeURIComponent(format)}&srsName=${srs}`;
 
-            if (featureId) {
-                reqUrl += `&featureID=${featureId}`;
-                logXml(`Executing WFS GetFeature for layer: ${layerName} with FeatureID: ${featureId}`);
-            } else if (!isNaN(top) && !isNaN(left) && !isNaN(bottom) && !isNaN(right)) {
+            if (!isNaN(top) && !isNaN(left) && !isNaN(bottom) && !isNaN(right)) {
                 // If mapping, BBOX is minx,miny,maxx,maxy OR minX,minY,maxX,maxY,SRS
                 reqUrl += `&bbox=${left},${bottom},${right},${top},EPSG:4326`;
                 logXml(`Executing WFS GetFeature for layer: ${layerName} with BBox`);

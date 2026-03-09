@@ -24,12 +24,15 @@
             <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="#">
                 <i class="bi bi-globe-americas fs-4"></i> GIS Web Client
             </a>
+            <span class="navbar-text text-white-75 small fw-semibold">
+                Client-Server Interoperability Project
+            </span>
         </div>
     </nav>
 
     <div class="container-fluid py-3 main-container">
         <div class="row h-100 g-3">
-            <!-- Left Panel -->
+            <!-- Left Panel: Controls -->
             <div class="col-md-4 col-lg-3 h-100 d-flex flex-column">
                 <div class="card shadow border-0 h-100 flex-grow-1 rounded-4">
                     <div class="card-header bg-white border-bottom-0 pb-0 pt-3 rounded-top-4">
@@ -132,21 +135,8 @@
                             </div>
 
                             <div class="row g-2 mb-4">
-                                <!-- Size -->
-                                <div class="col-6">
-                                    <label class="form-label fw-bold text-secondary small text-uppercase">Map
-                                        Size</label>
-                                    <div class="input-group input-group-sm">
-                                        <input type="number" class="form-control text-center" id="sizeWidth"
-                                            placeholder="W" value="800">
-                                        <span
-                                            class="input-group-text p-0 px-1 border-0 bg-transparent text-muted">×</span>
-                                        <input type="number" class="form-control text-center" id="sizeHeight"
-                                            placeholder="H" value="600">
-                                    </div>
-                                </div>
                                 <!-- Feature Info -->
-                                <div class="col-6">
+                                <div class="col-12">
                                     <label class="form-label fw-bold text-secondary small text-uppercase">Feature
                                         Info</label>
                                     <div class="input-group input-group-sm">
@@ -248,13 +238,7 @@
                                 </div>
                             </div>
 
-                            <!-- Feature ID -->
-                            <div class="mb-4">
-                                <label class="form-label fw-bold text-secondary small text-uppercase">Feature ID
-                                    (Optional)</label>
-                                <input type="text" class="form-control" id="wfsFeatureId"
-                                    placeholder="e.g., layername.123">
-                            </div>
+
 
                             <!-- RUN Button -->
                             <div class="d-grid mt-4">
@@ -280,7 +264,7 @@
                 </div>
             </div>
 
-            <!-- Right Panel -->
+            <!-- Right Panel: Map & XML -->
             <div class="col-md-8 col-lg-9 h-100 d-flex flex-column gap-3">
 
                 <!-- Map View -->
@@ -312,7 +296,7 @@
                         class="card-header bg-white d-flex justify-content-between align-items-center rounded-top-4 py-2">
                         <span class="fw-bold text-dark text-uppercase d-flex align-items-center gap-2"
                             style="letter-spacing: 0.5px;">
-                            <i class="bi bi-table text-success"></i> Feature Info Panel
+                            <i class="bi bi-info-square text-success"></i> Map Details & Logs
                         </span>
                         <div class="d-flex gap-2">
                             <button class="btn btn-sm btn-outline-secondary fw-semibold rounded-pill px-3"
@@ -325,7 +309,8 @@
                             </button>
                         </div>
                     </div>
-                    <div class="card-body p-0 rounded-bottom-4 overflow-hidden position-relative">
+                    <div class="card-body p-0 rounded-bottom-4 overflow-hidden position-relative"
+                        style="min-height:0; height:100%;">
                         <!-- Attribute Table -->
                         <div id="attributeTableContainer" class="w-100 h-100 bg-white p-3 overflow-auto"
                             style="display: none;">
@@ -333,8 +318,8 @@
                         </div>
                         <!-- Log -->
                         <textarea id="xmlResponseTextarea"
-                            class="form-control h-100 border-0 rounded-0 font-monospace text-light p-3 position-absolute top-0 start-0 z-1"
-                            readonly spellcheck="false" placeholder="Awaiting server queries..."></textarea>
+                            class="form-control h-100 border-0 rounded-0 font-monospace text-light p-3" readonly
+                            spellcheck="false" placeholder="Awaiting server queries..."></textarea>
                     </div>
                 </div>
 
