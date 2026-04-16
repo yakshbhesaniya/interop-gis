@@ -80,8 +80,25 @@ document.addEventListener("DOMContentLoaded", () => {
         el.infoY.value = Math.round(evt.pixel[1]);
     });
 
-    // Simple XML formatter helper
+    // Max characters to log into the textarea (prevents freeze on huge responses)
+    const LOG_MAX_CHARS = 200000; // ~200 KB
+    const WFS_MAX_FEATURES = 5000; // cap WFS GetFeature requests
+    const FETCH_TIMEOUT_MS = 30000; // 30 second timeout
+
+    // Fetch with timeout to prevent indefinite hangs
+    function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        return fetch(url, { ...options, signal: controller.signal })
+            .finally(() => clearTimeout(timer));
+    }
+
+    // Simple XML formatter helper — capped to prevent freeze on huge XML
     function formatXml(xml) {
+        if (xml.length > LOG_MAX_CHARS) {
+            // Only format a truncated preview
+            xml = xml.substring(0, LOG_MAX_CHARS);
+        }
         let formatted = '';
         let pad = 0;
         xml = xml.replace(/(>)(<)(\/*)/g, '$1\r\n$2$3');
@@ -102,11 +119,26 @@ document.addEventListener("DOMContentLoaded", () => {
         return formatted;
     }
 
-    // Custom Logger
+    // Truncate-safe logger — avoids dumping megabytes into the textarea
+    function logXmlSafe(content, label = 'Response') {
+        if (content.length > LOG_MAX_CHARS) {
+            logXml(`${label} is very large (${(content.length / 1024).toFixed(0)} KB). Showing first ${(LOG_MAX_CHARS / 1024).toFixed(0)} KB...`);
+            logXml(formatXml(content.substring(0, LOG_MAX_CHARS)) + '\n\n... [TRUNCATED] ...');
+        } else {
+            logXml(formatXml(content));
+        }
+    }
+
+    // Custom Logger — with total size cap to prevent accumulation freezes
     function logXml(msg, isReset = false) {
         if (isReset) el.xmlPanel.value = "";
         const timestamp = new Date().toLocaleTimeString();
         el.xmlPanel.value += `\n[${timestamp}] ${msg}\n`;
+        // Cap total textarea content to prevent memory issues over multiple queries
+        const MAX_TEXTAREA = 500000; // 500 KB
+        if (el.xmlPanel.value.length > MAX_TEXTAREA) {
+            el.xmlPanel.value = '... [Earlier logs trimmed] ...\n' + el.xmlPanel.value.slice(-MAX_TEXTAREA);
+        }
         el.xmlPanel.scrollTop = el.xmlPanel.scrollHeight;
     }
 
@@ -274,13 +306,13 @@ document.addEventListener("DOMContentLoaded", () => {
         logXml(`Sending GetCapabilities request to:\n${url}`, true);
 
         try {
-            const resp = await fetch(getCapUrl);
+            const resp = await fetchWithTimeout(getCapUrl);
             if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
 
             const xmlText = await resp.text();
 
-            logXml(`Received GetCapabilities response. Parsing XML...`);
-            logXml(`${formatXml(xmlText)}`);
+            logXml(`Received GetCapabilities response (${(xmlText.length / 1024).toFixed(0)} KB). Parsing XML...`);
+            logXmlSafe(xmlText, 'GetCapabilities XML');
 
             const parser = new DOMParser();
             const xmlDoc = parser.parseFromString(xmlText, "text/xml");
@@ -505,13 +537,13 @@ document.addEventListener("DOMContentLoaded", () => {
             logXml(`Sending WFS GetCapabilities request to:\n${url}`, true);
 
             try {
-                const resp = await fetch(getCapUrl);
+                const resp = await fetchWithTimeout(getCapUrl);
                 if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
 
                 const xmlText = await resp.text();
 
-                logXml(`Received WFS GetCapabilities response. Parsing XML...`);
-                logXml(`${formatXml(xmlText)}`);
+                logXml(`Received WFS GetCapabilities response (${(xmlText.length / 1024).toFixed(0)} KB). Parsing XML...`);
+                logXmlSafe(xmlText, 'WFS GetCapabilities XML');
 
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(xmlText, "text/xml");
@@ -608,74 +640,88 @@ document.addEventListener("DOMContentLoaded", () => {
             const bottom = parseFloat(el.wfsBboxBottom.value);
             const right = parseFloat(el.wfsBboxRight.value);
 
-            let reqUrl = `${state.wfsUrl}?request=GetFeature&service=WFS&version=1.1.0&typeName=${layerName}&outputFormat=${encodeURIComponent(format)}&srsName=${srs}`;
+            let reqUrl = `${state.wfsUrl}?request=GetFeature&service=WFS&version=1.1.0&typeName=${layerName}&outputFormat=${encodeURIComponent(format)}&srsName=${srs}&maxFeatures=${WFS_MAX_FEATURES}&count=${WFS_MAX_FEATURES}`;
 
             if (!isNaN(top) && !isNaN(left) && !isNaN(bottom) && !isNaN(right)) {
                 // If mapping, BBOX is minx,miny,maxx,maxy OR minX,minY,maxX,maxY,SRS
                 reqUrl += `&bbox=${left},${bottom},${right},${top},EPSG:4326`;
-                logXml(`Executing WFS GetFeature for layer: ${layerName} with BBox`);
+                logXml(`Executing WFS GetFeature for layer: ${layerName} with BBox (max ${WFS_MAX_FEATURES} features)`);
             } else {
-                logXml(`Executing WFS GetFeature for layer: ${layerName}`);
+                logXml(`Executing WFS GetFeature for layer: ${layerName} (max ${WFS_MAX_FEATURES} features)`);
             }
 
             el.mapOverlay.style.display = 'block';
 
             try {
-                const resp = await fetch(reqUrl);
+                const resp = await fetchWithTimeout(reqUrl, {}, 60000);
                 const text = await resp.text();
 
-                logXml(`WFS GetFeature Response Received.\n`);
+                logXml(`WFS GetFeature Response Received (${(text.length / 1024).toFixed(0)} KB).\n`);
                 if (format === 'application/json') {
                     try {
-                        logXml(JSON.stringify(JSON.parse(text), null, 2));
+                        const parsed = JSON.parse(text);
+                        const featureCount = parsed.features ? parsed.features.length : 0;
+                        logXml(`GeoJSON contains ${featureCount} features.`);
+                        if (text.length > LOG_MAX_CHARS) {
+                            logXml(`Response too large to display fully. Showing first ${(LOG_MAX_CHARS / 1024).toFixed(0)} KB...`);
+                            logXml(JSON.stringify(parsed, null, 2).substring(0, LOG_MAX_CHARS) + '\n\n... [TRUNCATED] ...');
+                        } else {
+                            logXml(JSON.stringify(parsed, null, 2));
+                        }
                     } catch (e) {
-                        logXml(text);
+                        logXmlSafe(text, 'WFS Response');
                     }
                 } else {
-                    logXml(formatXml(text));
+                    logXmlSafe(text, 'WFS XML Response');
                 }
 
                 // If GeoJSON, we can load it into the map
                 if (format === 'application/json') {
-                    const vectorSource = new ol.source.Vector({
-                        features: new ol.format.GeoJSON().readFeatures(text, {
+                    try {
+                        const features = new ol.format.GeoJSON().readFeatures(text, {
                             dataProjection: srs,
                             featureProjection: map.getView().getProjection()
-                        })
-                    });
+                        });
 
-                    const newLayer = new ol.layer.Vector({
-                        source: vectorSource,
-                        properties: { id: Date.now(), name: layerName, type: 'WFS' },
-                        style: new ol.style.Style({
-                            stroke: new ol.style.Stroke({
-                                color: 'blue',
-                                width: 2
-                            }),
-                            fill: new ol.style.Fill({
-                                color: 'rgba(0, 0, 255, 0.1)'
-                            }),
-                            image: new ol.style.Circle({
-                                radius: 5,
-                                fill: new ol.style.Fill({ color: 'red' })
+                        logXml(`Parsed ${features.length} features for map rendering.`);
+
+                        const vectorSource = new ol.source.Vector({ features });
+
+                        const newLayer = new ol.layer.Vector({
+                            source: vectorSource,
+                            properties: { id: Date.now(), name: layerName, type: 'WFS' },
+                            style: new ol.style.Style({
+                                stroke: new ol.style.Stroke({
+                                    color: 'blue',
+                                    width: 2
+                                }),
+                                fill: new ol.style.Fill({
+                                    color: 'rgba(0, 0, 255, 0.1)'
+                                }),
+                                image: new ol.style.Circle({
+                                    radius: 5,
+                                    fill: new ol.style.Fill({ color: 'red' })
+                                })
                             })
-                        })
-                    });
+                        });
 
-                    map.addLayer(newLayer);
-                    state.layers.unshift(newLayer);
-                    updateLayerManagerUI();
+                        map.addLayer(newLayer);
+                        state.layers.unshift(newLayer);
+                        updateLayerManagerUI();
 
-                    try {
-                        const extent = vectorSource.getExtent();
-                        if (!ol.extent.isEmpty(extent)) {
-                            map.getView().fit(extent, {
-                                padding: [50, 50, 50, 50],
-                                duration: 1000
-                            });
-                            logXml(`Map view fitted to GeoJSON feature extent.`);
-                        }
-                    } catch (e) { console.log(e); }
+                        try {
+                            const extent = vectorSource.getExtent();
+                            if (!ol.extent.isEmpty(extent)) {
+                                map.getView().fit(extent, {
+                                    padding: [50, 50, 50, 50],
+                                    duration: 1000
+                                });
+                                logXml(`Map view fitted to GeoJSON feature extent.`);
+                            }
+                        } catch (e) { console.log(e); }
+                    } catch (parseErr) {
+                        logXml(`Error parsing GeoJSON features: ${parseErr.message}. Data may be too large or malformed.`);
+                    }
                 }
 
             } catch (err) {

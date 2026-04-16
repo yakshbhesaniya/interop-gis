@@ -4,11 +4,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GIS Web Client</title>
+    <title>GIS Web Client — SOS Air Quality Monitor</title>
+    <meta name="description" content="Sensor Observation Service client for Indian CPCB Air Quality Monitoring Network with spatial/temporal subsetting and data visualization.">
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- OpenLayers CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v10.1.0/ol.css">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <!-- Custom CSS -->
     <link rel="stylesheet" href="static/css/style.css">
     <!-- Google Fonts -->
@@ -18,12 +21,16 @@
 </head>
 
 <body class="bg-light text-dark">
+    <!-- Toast Container -->
+    <div id="sosToastContainer" class="toast-container position-fixed top-0 end-0 p-3" style="z-index:9999;"></div>
+
     <!-- Navbar -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm custom-navbar">
         <div class="container-fluid">
             <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="#">
                 <i class="bi bi-globe-americas fs-4"></i> GIS Web Client
             </a>
+
         </div>
     </nav>
 
@@ -36,7 +43,7 @@
                         <!-- Tabs -->
                         <ul class="nav nav-tabs nav-fill" id="serviceTabs" role="tablist">
                             <li class="nav-item" role="presentation">
-                                <button class="nav-link active fw-bold" id="wms-tab" data-bs-toggle="tab"
+                                <button class="nav-link fw-bold text-muted" id="wms-tab" data-bs-toggle="tab"
                                     data-bs-target="#wms-panel" type="button" role="tab">WMS</button>
                             </li>
                             <li class="nav-item" role="presentation">
@@ -44,16 +51,200 @@
                                     data-bs-target="#wfs-panel" type="button" role="tab">WFS</button>
                             </li>
                             <li class="nav-item" role="presentation">
+                                <button class="nav-link active fw-bold" id="sos-tab" data-bs-toggle="tab"
+                                    data-bs-target="#sos-panel" type="button" role="tab">
+                                    <i class="bi bi-broadcast-pin"></i> SOS
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
                                 <button class="nav-link fw-bold text-muted" id="layers-tab" data-bs-toggle="tab"
                                     data-bs-target="#layers-panel" type="button" role="tab">
-                                    <i class="bi bi-layers"></i> Layers
+                                    <i class="bi bi-layers"></i>
                                 </button>
                             </li>
                         </ul>
                     </div>
                     <div class="card-body overflow-auto tab-content bg-white pb-4 rounded-bottom-4">
+
+                        <!-- ═══════════════════════════════════════════ -->
+                        <!-- SOS Panel -->
+                        <!-- ═══════════════════════════════════════════ -->
+                        <div class="tab-pane fade show active" id="sos-panel" role="tabpanel">
+
+                            <!-- Operation Select -->
+                            <div class="mb-3 mt-2">
+                                <label for="sosOperationSelect"
+                                    class="form-label fw-bold text-secondary small text-uppercase">SOS Operation</label>
+                                <select class="form-select form-select-sm shadow-sm" id="sosOperationSelect">
+                                    <option value="GetCapabilities">GetCapabilities</option>
+                                    <option value="DescribeSensor">DescribeSensor</option>
+                                    <option value="GetObservation" selected>GetObservation</option>
+                                </select>
+                            </div>
+
+                            <!-- Sensor Select -->
+                            <div class="mb-3" id="sosSensorSelectGroup">
+                                <label for="sosSensorSelect"
+                                    class="form-label fw-bold text-secondary small text-uppercase">Sensor /
+                                    Station</label>
+                                <select class="form-select form-select-sm shadow-sm" id="sosSensorSelect">
+                                    <option value="">All Sensors</option>
+                                </select>
+                            </div>
+
+                            <hr class="text-muted opacity-25">
+
+                            <!-- Filters Section (only for GetObservation) -->
+                            <div id="sosFiltersSection">
+
+                                <!-- ── SPATIAL FILTER ─────────────────── -->
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold text-secondary small text-uppercase d-flex align-items-center gap-1">
+                                        <i class="bi bi-bounding-box text-primary"></i> Spatial Filter
+                                    </label>
+                                    <select class="form-select form-select-sm mb-2" id="sosSpatialType">
+                                        <option value="none">None</option>
+                                        <option value="bbox">Bounding Box</option>
+                                        <option value="contains">Containing (Point + Radius)</option>
+                                    </select>
+
+                                    <!-- Bounding Box inputs -->
+                                    <div id="sosBboxGroup" class="p-2 bg-light rounded-3 border" style="display:none;">
+                                        <div class="row g-1 align-items-center">
+                                            <div class="col-12 text-center">
+                                                <input type="number" step="any"
+                                                    class="form-control form-control-sm mx-auto text-center"
+                                                    id="sosBboxNorth" placeholder="North" style="max-width:120px;">
+                                            </div>
+                                            <div class="col-6 text-end">
+                                                <input type="number" step="any"
+                                                    class="form-control form-control-sm ms-auto text-center"
+                                                    id="sosBboxWest" placeholder="West" style="max-width:120px;">
+                                            </div>
+                                            <div class="col-6 text-start">
+                                                <input type="number" step="any"
+                                                    class="form-control form-control-sm text-center" id="sosBboxEast"
+                                                    placeholder="East" style="max-width:120px;">
+                                            </div>
+                                            <div class="col-12 text-center">
+                                                <input type="number" step="any"
+                                                    class="form-control form-control-sm mx-auto text-center"
+                                                    id="sosBboxSouth" placeholder="South" style="max-width:120px;">
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Containing (Point + Radius) -->
+                                    <div id="sosContainGroup" class="p-2 bg-light rounded-3 border"
+                                        style="display:none;">
+                                        <div class="row g-1">
+                                            <div class="col-4">
+                                                <input type="number" step="any"
+                                                    class="form-control form-control-sm text-center"
+                                                    id="sosContainLat" placeholder="Lat">
+                                            </div>
+                                            <div class="col-4">
+                                                <input type="number" step="any"
+                                                    class="form-control form-control-sm text-center"
+                                                    id="sosContainLon" placeholder="Lon">
+                                            </div>
+                                            <div class="col-4">
+                                                <input type="number" step="any"
+                                                    class="form-control form-control-sm text-center"
+                                                    id="sosContainRadius" placeholder="Radius (km)">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- ── TEMPORAL FILTER ────────────────── -->
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold text-secondary small text-uppercase d-flex align-items-center gap-1">
+                                        <i class="bi bi-clock-history text-success"></i> Temporal Filter
+                                    </label>
+                                    <select class="form-select form-select-sm mb-2" id="sosTemporalType">
+                                        <option value="none">None</option>
+                                        <option value="after">After (time instant)</option>
+                                        <option value="during">During (time period)</option>
+                                    </select>
+
+                                    <div id="sosAfterGroup" style="display:none;">
+                                        <input type="datetime-local" class="form-control form-control-sm"
+                                            id="sosAfterDate">
+                                    </div>
+                                    <div id="sosDuringGroup" style="display:none;">
+                                        <div class="row g-1">
+                                            <div class="col-6">
+                                                <label class="form-label small text-muted mb-0">From</label>
+                                                <input type="datetime-local" class="form-control form-control-sm"
+                                                    id="sosDuringStart">
+                                            </div>
+                                            <div class="col-6">
+                                                <label class="form-label small text-muted mb-0">To</label>
+                                                <input type="datetime-local" class="form-control form-control-sm"
+                                                    id="sosDuringEnd">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- ── COMPARISON FILTER ──────────────── -->
+                                <div class="mb-3">
+                                    <label class="form-label fw-bold text-secondary small text-uppercase d-flex align-items-center gap-1">
+                                        <i class="bi bi-funnel text-danger"></i> Comparison Filter
+                                    </label>
+                                    <div class="row g-1 mb-1">
+                                        <div class="col-6">
+                                            <select class="form-select form-select-sm" id="sosFilterProp">
+                                                <option value="">Property...</option>
+                                                <option value="Temperature">🌡️ Temperature</option>
+                                                <option value="Humidity">💧 Humidity</option>
+                                                <option value="WindSpeed">💨 Wind Speed</option>
+                                                <option value="PM2.5">🏭 PM2.5</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-6">
+                                            <select class="form-select form-select-sm" id="sosFilterOp">
+                                                <option value="">Operator...</option>
+                                                <option value="equalto">EqualTo (=)</option>
+                                                <option value="notequalto">NotEqualTo (≠)</option>
+                                                <option value="lessthan">LessThan (&lt;)</option>
+                                                <option value="greaterthan">GreaterThan (&gt;)</option>
+                                                <option value="between">Between</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="row g-1">
+                                        <div class="col-6">
+                                            <input type="number" step="any" class="form-control form-control-sm"
+                                                id="sosFilterVal1" placeholder="Value">
+                                        </div>
+                                        <div class="col-6" id="sosFilterVal2Group" style="display:none;">
+                                            <input type="number" step="any" class="form-control form-control-sm"
+                                                id="sosFilterVal2" placeholder="Max Value">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Execute Button -->
+                            <div class="d-grid mt-3">
+                                <button class="btn btn-success btn-lg fw-bold shadow position-relative overflow-hidden"
+                                    id="sosBtnExecute">
+                                    <i class="bi bi-play-fill me-1 fs-5 align-middle"></i> EXECUTE QUERY
+                                </button>
+                            </div>
+
+                            <!-- Result Count Badge -->
+                            <div class="mt-2 text-center" id="sosResultCount"
+                                style="display:none; font-size:0.85rem; color:#6366f1; font-weight:600;">
+                            </div>
+
+
+                        </div>
+
                         <!-- WMS Panel -->
-                        <div class="tab-pane fade show active" id="wms-panel" role="tabpanel">
+                        <div class="tab-pane fade" id="wms-panel" role="tabpanel">
 
                             <!-- URL Input -->
                             <div class="mb-4 mt-2">
@@ -235,8 +426,6 @@
                                 </div>
                             </div>
 
-
-
                             <!-- RUN Button -->
                             <div class="d-grid mt-4">
                                 <button class="btn btn-success btn-lg fw-bold shadow position-relative overflow-hidden"
@@ -261,13 +450,12 @@
                 </div>
             </div>
 
-            <!-- Right Panel: Map & XML -->
+            <!-- Right Panel: Map & Data -->
             <div class="col-md-8 col-lg-9 h-100 d-flex flex-column gap-3">
 
-                <!-- Map View -->
+                <!-- Map Area -->
                 <div class="card shadow border-0 flex-grow-1 map-container-card rounded-4">
-                    <div
-                        class="card-header bg-white d-flex justify-content-between align-items-center rounded-top-4 py-3">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center rounded-top-4 py-3">
                         <span class="fw-bold text-dark text-uppercase d-flex align-items-center gap-2"
                             style="letter-spacing: 0.5px;">
                             <i class="bi bi-map-fill text-primary"></i> Map View
@@ -277,7 +465,10 @@
                             0.00, Lat: 0.00</span>
                     </div>
                     <div class="card-body p-0 position-relative bg-light rounded-bottom-4 overflow-hidden">
-                        <div id="map" class="w-100 h-100"></div>
+                        <!-- OpenLayers map (WMS/WFS) -->
+                        <div id="map" class="w-100 h-100" style="display:none;"></div>
+                        <!-- Leaflet map (SOS) -->
+                        <div id="sosMap" class="w-100 h-100"></div>
                         <div id="mapOverlay"
                             class="position-absolute top-50 start-50 translate-middle text-center p-4 rounded-4 shadow"
                             style="background: rgba(255,255,255,0.9); z-index: 1000; display: none;">
@@ -287,10 +478,103 @@
                     </div>
                 </div>
 
-                <!-- Feature Info Response Panel -->
+                <!-- Bottom Panel: Table / Charts / XML -->
                 <div class="card shadow border-0 xml-panel-card rounded-4">
-                    <div
-                        class="card-header bg-white d-flex justify-content-between align-items-center rounded-top-4 py-2">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center rounded-top-4 py-2">
+                        <ul class="nav nav-tabs nav-fill border-0 flex-nowrap" id="sosBottomTabs" role="tablist" style="margin-bottom:-1px;">
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link active fw-bold px-3 py-1" id="sosTableTab"
+                                    data-bs-toggle="tab" data-bs-target="#sosTablePane" type="button" role="tab">
+                                    <i class="bi bi-table me-1"></i> Table
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold px-3 py-1" id="sosChartsTab"
+                                    data-bs-toggle="tab" data-bs-target="#sosChartsPane" type="button" role="tab">
+                                    <i class="bi bi-bar-chart-fill me-1"></i> Charts
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold px-3 py-1" id="sosXmlTab"
+                                    data-bs-toggle="tab" data-bs-target="#sosXmlPane" type="button" role="tab">
+                                    <i class="bi bi-code-slash me-1"></i> XML
+                                </button>
+                            </li>
+                            <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold px-3 py-1" id="sosSensormlTab"
+                                    data-bs-toggle="tab" data-bs-target="#sosSensormlPane" type="button" role="tab">
+                                    <i class="bi bi-cpu me-1"></i> SensorML
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card-body p-0 rounded-bottom-4 overflow-hidden position-relative tab-content"
+                        style="min-height:0; height:100%;">
+
+                        <!-- Table Pane -->
+                        <div class="tab-pane fade show active h-100" id="sosTablePane" role="tabpanel">
+                            <div class="w-100 h-100 overflow-auto">
+                                <table class="table table-sm table-hover table-striped mb-0 sos-data-table">
+                                    <thead class="table-dark sticky-top" id="sosTableHead">
+                                        <tr>
+                                            <th>#</th><th>Station</th><th>Timestamp</th>
+                                            <th>Temp (°C)</th><th>Humidity (%)</th>
+                                            <th>Wind (km/h)</th><th>PM2.5 (µg/m³)</th>
+                                            <th>Lat</th><th>Lon</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sosTableBody">
+                                        <tr>
+                                            <td colspan="9" class="text-center text-muted py-5">
+                                                <i class="bi bi-arrow-left-circle fs-4 d-block mb-2"></i>
+                                                Select an operation and click <b>Execute Query</b> to view data
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Charts Pane -->
+                        <div class="tab-pane fade h-100" id="sosChartsPane" role="tabpanel">
+                            <div class="w-100 h-100 overflow-auto p-3">
+                                <div class="row g-3">
+                                    <div class="col-lg-7">
+                                        <div class="chart-container" style="height:250px;">
+                                            <canvas id="sosBarChart"></canvas>
+                                        </div>
+                                    </div>
+                                    <div class="col-lg-5">
+                                        <div class="chart-container" style="height:250px;">
+                                            <canvas id="sosPieChart"></canvas>
+                                        </div>
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="chart-container" style="height:220px;">
+                                            <canvas id="sosLineChart"></canvas>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- XML Response Pane -->
+                        <div class="tab-pane fade h-100" id="sosXmlPane" role="tabpanel">
+                            <pre id="sosXmlOutput"
+                                class="h-100 m-0 p-3 overflow-auto sos-xml-pre"><!-- Execute a query to see the XML response --></pre>
+                        </div>
+
+                        <!-- SensorML Pane -->
+                        <div class="tab-pane fade h-100" id="sosSensormlPane" role="tabpanel">
+                            <pre id="sosSensormlOutput"
+                                class="h-100 m-0 p-3 overflow-auto sos-xml-pre"><!-- Select DescribeSensor to view SensorML --></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hidden: Original WMS/WFS panels (shown when WMS/WFS tab active) -->
+                <div id="wmsWfsInfoPanel" class="card shadow border-0 xml-panel-card rounded-4" style="display:none;">
+                    <div class="card-header bg-white d-flex justify-content-between align-items-center rounded-top-4 py-2">
                         <span class="fw-bold text-dark text-uppercase d-flex align-items-center gap-2"
                             style="letter-spacing: 0.5px;">
                             <i class="bi bi-info-square text-success"></i> Map Details & Logs
@@ -308,18 +592,15 @@
                     </div>
                     <div class="card-body p-0 rounded-bottom-4 overflow-hidden position-relative"
                         style="min-height:0; height:100%;">
-                        <!-- Attribute Table -->
                         <div id="attributeTableContainer" class="w-100 h-100 bg-white p-3 overflow-auto"
                             style="display: none;">
                             <h6 class="text-muted text-center mt-3">Click on a feature to view attributes...</h6>
                         </div>
-                        <!-- Log -->
                         <textarea id="xmlResponseTextarea"
                             class="form-control h-100 border-0 rounded-0 font-monospace text-light p-3" readonly
                             spellcheck="false" placeholder="Awaiting server queries..."></textarea>
                     </div>
                 </div>
-
             </div>
         </div>
     </div>
@@ -327,7 +608,44 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ol@v10.1.0/dist/ol.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <script src="static/js/sos-data.js"></script>
+    <script src="static/js/sos-xml.js"></script>
+    <script src="static/js/sos-client.js"></script>
     <script src="static/js/app.js"></script>
+
+    <!-- Tab-switching logic to toggle map views -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const sosMapEl = document.getElementById('sosMap');
+            const olMapEl = document.getElementById('map');
+            const sosBottomPanel = document.querySelector('.xml-panel-card');
+            const wmsWfsPanel = document.getElementById('wmsWfsInfoPanel');
+
+            function showSOSView() {
+                sosMapEl.style.display = 'block';
+                olMapEl.style.display = 'none';
+                sosBottomPanel.style.display = '';
+                wmsWfsPanel.style.display = 'none';
+            }
+
+            function showOLView() {
+                sosMapEl.style.display = 'none';
+                olMapEl.style.display = 'block';
+                sosBottomPanel.style.display = 'none';
+                wmsWfsPanel.style.display = '';
+            }
+
+            // Default: SOS tab is active
+            showSOSView();
+
+            document.getElementById('sos-tab').addEventListener('shown.bs.tab', showSOSView);
+            document.getElementById('wms-tab').addEventListener('shown.bs.tab', showOLView);
+            document.getElementById('wfs-tab').addEventListener('shown.bs.tab', showOLView);
+            document.getElementById('layers-tab').addEventListener('shown.bs.tab', showOLView);
+        });
+    </script>
 </body>
 
 </html>
