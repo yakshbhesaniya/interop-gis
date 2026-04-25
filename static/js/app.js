@@ -43,8 +43,35 @@ document.addEventListener("DOMContentLoaded", () => {
         wfsBboxRight: document.getElementById('wfsBboxRight'),
         wfsBboxBottom: document.getElementById('wfsBboxBottom'),
 
-        wfsBtnRun: document.getElementById('wfsBtnRun')
+        wfsBtnRun: document.getElementById('wfsBtnRun'),
+
+        // SOS Elements
+        sosParameter: document.getElementById('sosParameter'),
+        sosBboxTop: document.getElementById('sosBboxTop'),
+        sosBboxLeft: document.getElementById('sosBboxLeft'),
+        sosBboxRight: document.getElementById('sosBboxRight'),
+        sosBboxBottom: document.getElementById('sosBboxBottom'),
+        sosTimeStart: document.getElementById('sosTimeStart'),
+        sosTimeEnd: document.getElementById('sosTimeEnd'),
+        sosFilterOp: document.getElementById('sosFilterOp'),
+        sosFilterVal: document.getElementById('sosFilterVal'),
+        sosBtnRun: document.getElementById('sosBtnRun'),
+        sosBtnSensorML: document.getElementById('sosBtnSensorML')
     };
+
+    // Mock SOS Database
+    const sosDatabase = [
+        { id: 1, station: "Station A (Delhi)", lat: 28.7041, lon: 77.1025, timestamp: "2026-04-20", PM2_5: 120, PM10: 150, Temperature: 32, Humidity: 45 },
+        { id: 2, station: "Station B (Mumbai)", lat: 19.0760, lon: 72.8777, timestamp: "2026-04-21", PM2_5: 80, PM10: 110, Temperature: 30, Humidity: 70 },
+        { id: 3, station: "Station C (Bengaluru)", lat: 12.9716, lon: 77.5946, timestamp: "2026-04-21", PM2_5: 45, PM10: 60, Temperature: 28, Humidity: 65 },
+        { id: 4, station: "Station D (Chennai)", lat: 13.0827, lon: 80.2707, timestamp: "2026-04-22", PM2_5: 55, PM10: 75, Temperature: 33, Humidity: 75 },
+        { id: 5, station: "Station E (Kolkata)", lat: 22.5726, lon: 88.3639, timestamp: "2026-04-23", PM2_5: 95, PM10: 130, Temperature: 34, Humidity: 80 },
+        { id: 6, station: "Station F (Ahmedabad)", lat: 23.0225, lon: 72.5714, timestamp: "2026-04-23", PM2_5: 110, PM10: 140, Temperature: 36, Humidity: 40 },
+        { id: 7, station: "Station G (Pune)", lat: 18.5204, lon: 73.8567, timestamp: "2026-04-24", PM2_5: 65, PM10: 90, Temperature: 31, Humidity: 60 }
+    ];
+
+    let currentChart = null;
+    let sosVectorLayer = null;
 
     // Initialize OpenLayers Map with OSM Base
     const map = new ol.Map({
@@ -66,6 +93,26 @@ document.addEventListener("DOMContentLoaded", () => {
             new ol.control.ZoomToExtent()
         ])
     });
+
+    // Popup Overlay
+    const popupContainer = document.getElementById('popup');
+    const popupContent = document.getElementById('popup-content');
+    const popupCloser = document.getElementById('popup-closer');
+    
+    const popupOverlay = new ol.Overlay({
+        element: popupContainer,
+        autoPan: true,
+        autoPanAnimation: { duration: 250 }
+    });
+    map.addOverlay(popupOverlay);
+
+    if (popupCloser) {
+        popupCloser.onclick = function() {
+            popupOverlay.setPosition(undefined);
+            popupCloser.blur();
+            return false;
+        };
+    }
 
     // Update coordinates & feature info visually on hover
     map.on('pointermove', function (evt) {
@@ -136,12 +183,25 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function showAttributeTable(properties) {
+    function showAttributeTable(properties, isCustomHtml = false) {
         // Switch panels: hide log, show attribute table
         el.xmlPanel.style.display = 'none';
         el.attrTableContainer.style.display = 'block';
         logsVisible = false;
         updateToggleLogBtn();
+        
+        let tableArea = document.getElementById('tableContentArea');
+        if (!tableArea) {
+            el.attrTableContainer.innerHTML = '<div id="tableContentArea"></div><div id="chartContainer" class="mt-4" style="display: none;"><canvas id="sosChart" style="max-height: 250px;"></canvas></div>';
+            tableArea = document.getElementById('tableContentArea');
+        }
+
+        if (isCustomHtml) {
+            tableArea.innerHTML = properties;
+            const chartContainer = document.getElementById('chartContainer');
+            if (chartContainer) chartContainer.style.display = 'none';
+            return;
+        }
 
         // Filter out geometry keys and OL geometry objects
         const filtered = {};
@@ -154,7 +214,13 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (Object.keys(filtered).length === 0) {
-            el.attrTableContainer.innerHTML = '<h6 class="text-muted text-center mt-3">No attributes found for this feature.</h6>';
+            if (tableArea) {
+                tableArea.innerHTML = '<h6 class="text-muted text-center mt-3">No attributes found for this feature.</h6>';
+                const chartContainer = document.getElementById('chartContainer');
+                if (chartContainer) chartContainer.style.display = 'none';
+            } else {
+                el.attrTableContainer.innerHTML = '<h6 class="text-muted text-center mt-3">No attributes found for this feature.</h6>';
+            }
             return;
         }
 
@@ -170,7 +236,8 @@ document.addEventListener("DOMContentLoaded", () => {
             html += `<tr><td class="fw-bold text-secondary text-truncate" style="max-width:140px;" title="${key}">${key}</td><td style="max-width:220px; word-break:break-word;" title="${valStr}">${valStr}</td></tr>`;
         }
         html += '</tbody></table>';
-        el.attrTableContainer.innerHTML = html;
+        tableArea.innerHTML = html;
+        document.getElementById('chartContainer').style.display = 'none';
     }
 
     function updateLayerManagerUI() {
@@ -186,7 +253,10 @@ document.addEventListener("DOMContentLoaded", () => {
             li.className = 'list-group-item d-flex justify-content-between align-items-center py-2';
 
             const isChecked = layer.getVisible() ? 'checked' : '';
-            const typeClass = props.type === 'WMS' ? 'primary' : 'success';
+            let typeClass = 'secondary';
+            if (props.type === 'WMS') typeClass = 'primary';
+            else if (props.type === 'WFS') typeClass = 'success';
+            else if (props.type === 'SOS') typeClass = 'warning text-dark';
 
             li.innerHTML = `
                 <div class="d-flex align-items-center gap-2" style="width: 65%;">
@@ -423,20 +493,37 @@ document.addEventListener("DOMContentLoaded", () => {
     map.on('singleclick', async (evt) => {
         if (state.layers.length === 0) return;
 
-        logXml(`Fetching Feature Info for Map Click at pixel [${Math.round(evt.pixel[0])}, ${Math.round(evt.pixel[1])}]...`);
-        el.attrTableContainer.innerHTML = '<div class="text-center mt-3"><div class="spinner-border spinner-border-sm text-primary"></div> Loading attributes...</div>';
-        showAttributeTable({});
-
-        // Check if WFS feature clicked
+        // Check if WFS or SOS feature clicked
         const feature = map.forEachFeatureAtPixel(evt.pixel, (feat) => feat, {
             hitTolerance: 5 // 5 pixels tolerance for easier clicking on lines/points
         });
 
         if (feature) {
-            logXml(`WFS Feature Clicked. Showing attributes.`);
-            showAttributeTable(feature.getProperties());
-            return;
+            if (feature.get('sosIndex') !== undefined) {
+                logXml(`SOS Feature Clicked. Showing popup.`);
+                
+                // Show Popup
+                const content = `
+                    <div style="font-family: Arial, sans-serif; min-width: 200px;">
+                        <h6 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-top: 0;">${feature.get('station')}</h6>
+                        <p style="margin: 5px 0; font-size: 14px;"><strong>${feature.get('param')}:</strong> <span style="color: red; font-weight: bold;">${feature.get('value')}</span></p>
+                        <p style="margin: 5px 0; font-size: 12px; color: #555;"><strong>Time:</strong> ${feature.get('timestamp')}</p>
+                        <p style="margin: 5px 0; font-size: 12px; color: #555;"><strong>Lat/Lon:</strong> ${feature.get('fullData').lat}, ${feature.get('fullData').lon}</p>
+                    </div>
+                `;
+                popupContent.innerHTML = content;
+                popupContainer.style.display = 'block';
+                popupOverlay.setPosition(evt.coordinate);
+                return;
+            } else {
+                logXml(`WFS Feature Clicked. Showing attributes.`);
+                popupOverlay.setPosition(undefined);
+                showAttributeTable(feature.getProperties());
+                return;
+            }
         }
+        
+        popupOverlay.setPosition(undefined);
 
         // Check topmost WMS layer
         let topmostWmsLayer = null;
@@ -467,15 +554,15 @@ document.addEventListener("DOMContentLoaded", () => {
                         showAttributeTable(json.features[0].properties);
                     } else {
                         logXml(`No WMS features found at this location.`);
-                        el.attrTableContainer.innerHTML = '<h6 class="text-muted text-center mt-3">No features matched at this point.</h6>';
+                        showAttributeTable('<h6 class="text-muted text-center mt-3">No features matched at this point.</h6>', true);
                     }
                 } catch (err) {
                     logXml(`Error getting WMS info: ${err.message}`);
-                    el.attrTableContainer.innerHTML = `<h6 class="text-danger text-center mt-3">${err.message}</h6>`;
+                    showAttributeTable(`<h6 class="text-danger text-center mt-3">${err.message}</h6>`, true);
                 }
             }
         } else {
-            el.attrTableContainer.innerHTML = '<h6 class="text-muted text-center mt-3">No visible features to query.</h6>';
+            showAttributeTable('<h6 class="text-muted text-center mt-3">No visible features to query.</h6>', true);
         }
     });
 
@@ -684,6 +771,320 @@ document.addEventListener("DOMContentLoaded", () => {
                 el.mapOverlay.style.display = 'none';
             }
         });
+    }
+
+    // SOS Global Function for table row clicking
+    window.highlightSosMarker = function(lat, lon) {
+        if (!sosVectorLayer) return;
+        const coord = ol.proj.fromLonLat([lon, lat]);
+        
+        const features = sosVectorLayer.getSource().getFeatures();
+        let clickedFeat = null;
+        for (let feat of features) {
+            const geom = feat.getGeometry();
+            const featCoord = geom.getCoordinates();
+            if (Math.abs(featCoord[0] - coord[0]) < 100 && Math.abs(featCoord[1] - coord[1]) < 100) {
+                clickedFeat = feat;
+                break;
+            }
+        }
+        
+        if (clickedFeat) {
+            // Animate map to location
+            map.getView().animate({ center: coord, duration: 500, zoom: Math.max(map.getView().getZoom(), 6) });
+            
+            // Show Popup
+            const content = `
+                <div style="font-family: Arial, sans-serif; min-width: 200px;">
+                    <h6 style="border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-top: 0;">${clickedFeat.get('station')}</h6>
+                    <p style="margin: 5px 0; font-size: 14px;"><strong>${clickedFeat.get('param')}:</strong> <span style="color: red; font-weight: bold;">${clickedFeat.get('value')}</span></p>
+                    <p style="margin: 5px 0; font-size: 12px; color: #555;"><strong>Time:</strong> ${clickedFeat.get('timestamp')}</p>
+                    <p style="margin: 5px 0; font-size: 12px; color: #555;"><strong>Lat/Lon:</strong> ${clickedFeat.get('fullData').lat}, ${clickedFeat.get('fullData').lon}</p>
+                </div>
+            `;
+            popupContent.innerHTML = content;
+            popupContainer.style.display = 'block'; // Ensure it's visible
+            popupOverlay.setPosition(coord);
+        }
+    };
+
+    // SOS Logic
+    if (el.sosBtnRun) {
+        el.sosBtnRun.addEventListener('click', async () => {
+            const param = el.sosParameter.value; // 'PM2.5', 'PM10', 'Temperature', 'Humidity'
+            const dbParam = param === 'PM2.5' ? 'pm25' : param.toLowerCase(); // Map to API keys
+
+            // Build query params
+            const params = new URLSearchParams();
+            
+            // Spatial Subsetting
+            const top = parseFloat(el.sosBboxTop.value);
+            const left = parseFloat(el.sosBboxLeft.value);
+            const bottom = parseFloat(el.sosBboxBottom.value);
+            const right = parseFloat(el.sosBboxRight.value);
+
+            // Temporal Subsetting
+            const timeStart = el.sosTimeStart.value;
+            const timeEnd = el.sosTimeEnd.value;
+
+            // Value Filtering
+            const filterOp = el.sosFilterOp.value;
+            const filterValStr = el.sosFilterVal.value.trim();
+            
+            logXml(`Fetching live data from Open-Meteo public APIs for ${param}...`);
+            
+            let tableArea = document.getElementById('tableContentArea');
+            if (!tableArea) {
+                el.attrTableContainer.innerHTML = '<div id="tableContentArea"></div><div id="chartContainer" class="mt-4" style="display: none;"><canvas id="sosChart" style="max-height: 250px;"></canvas></div>';
+                tableArea = document.getElementById('tableContentArea');
+            }
+            tableArea.innerHTML = '<div class="text-center mt-3"><div class="spinner-border spinner-border-sm text-primary"></div> Fetching LIVE data from API...</div>';
+            document.getElementById('chartContainer').style.display = 'none';
+            el.xmlPanel.style.display = 'none';
+            el.attrTableContainer.style.display = 'block';
+
+            let filteredData = [];
+            try {
+                // Fixed set of representative stations for India
+                const stations = [
+                    { id: 1, station: "Delhi", lat: 28.7041, lon: 77.1025 },
+                    { id: 2, station: "Mumbai", lat: 19.0760, lon: 72.8777 },
+                    { id: 3, station: "Bengaluru", lat: 12.9716, lon: 77.5946 },
+                    { id: 4, station: "Kolkata", lat: 22.5726, lon: 88.3639 },
+                    { id: 5, station: "Chennai", lat: 13.0827, lon: 80.2707 },
+                    { id: 6, station: "Ahmedabad", lat: 23.0225, lon: 72.5714 },
+                    { id: 7, station: "Hyderabad", lat: 17.3850, lon: 78.4867 }
+                ];
+                
+                // For Open-Meteo Air Quality
+                const aqParam = param === 'PM2.5' ? 'pm2_5' : param === 'PM10' ? 'pm10' : null;
+                // For Open-Meteo Weather
+                const wxParam = param === 'Temperature' ? 'temperature_2m' : param === 'Humidity' ? 'relative_humidity_2m' : null;
+                
+                const promises = stations.map(async (st) => {
+                    let stData = [];
+                    
+                    if (timeStart || timeEnd) {
+                        // Temporal subsetting -> fetch hourly history
+                        const start = timeStart || new Date().toISOString().split('T')[0];
+                        const end = timeEnd || new Date().toISOString().split('T')[0];
+                        
+                        if (aqParam) {
+                            const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${st.lat}&longitude=${st.lon}&hourly=${aqParam}&start_date=${start}&end_date=${end}`);
+                            if (!res.ok) throw new Error("Air Quality API failed");
+                            const json = await res.json();
+                            
+                            if (json.hourly && json.hourly.time) {
+                                for(let i=0; i<json.hourly.time.length; i++){
+                                    stData.push({
+                                        station: st.station, lat: st.lat, lon: st.lon,
+                                        timestamp: json.hourly.time[i],
+                                        [dbParam]: json.hourly[aqParam][i]
+                                    });
+                                }
+                            }
+                        } else if (wxParam) {
+                            const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${st.lat}&longitude=${st.lon}&hourly=${wxParam}&start_date=${start}&end_date=${end}`);
+                            if (!res.ok) throw new Error("Weather API failed");
+                            const json = await res.json();
+                            
+                            if (json.hourly && json.hourly.time) {
+                                for(let i=0; i<json.hourly.time.length; i++){
+                                    stData.push({
+                                        station: st.station, lat: st.lat, lon: st.lon,
+                                        timestamp: json.hourly.time[i],
+                                        [dbParam]: json.hourly[wxParam][i]
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        // No temporal subsetting -> fetch current live reading
+                        let val = 0;
+                        let ts = new Date().toISOString().slice(0,19);
+                        
+                        if (aqParam) {
+                            const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${st.lat}&longitude=${st.lon}&current=${aqParam}`);
+                            if (!res.ok) throw new Error("Air Quality API failed");
+                            const json = await res.json();
+                            val = json.current[aqParam];
+                            ts = json.current.time;
+                        } else if (wxParam) {
+                            const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${st.lat}&longitude=${st.lon}&current=${wxParam}`);
+                            if (!res.ok) throw new Error("Weather API failed");
+                            const json = await res.json();
+                            val = json.current[wxParam];
+                            ts = json.current.time;
+                        }
+                        
+                        stData.push({
+                            station: st.station, lat: st.lat, lon: st.lon,
+                            timestamp: ts,
+                            [dbParam]: val
+                        });
+                    }
+                    return stData;
+                });
+                
+                const results = await Promise.all(promises);
+                filteredData = results.flat();
+
+                // Apply UI filters to the live data
+                // Spatial Subsetting
+                if (!isNaN(top) && !isNaN(left) && !isNaN(bottom) && !isNaN(right)) {
+                    filteredData = filteredData.filter(d => d.lat <= top && d.lat >= bottom && d.lon >= left && d.lon <= right);
+                }
+                
+                // Temporal Subsetting (API returns data, but we filter precisely here)
+                if (timeStart) filteredData = filteredData.filter(d => new Date(d.timestamp) >= new Date(timeStart));
+                if (timeEnd) filteredData = filteredData.filter(d => new Date(d.timestamp) <= new Date(timeEnd + 'T23:59:59'));
+                
+                // Value Filtering
+                if (filterOp && filterValStr) {
+                    if (filterOp === 'Between') {
+                        const parts = filterValStr.split(',');
+                        if (parts.length === 2) {
+                            const v1 = parseFloat(parts[0]);
+                            const v2 = parseFloat(parts[1]);
+                            if (!isNaN(v1) && !isNaN(v2)) filteredData = filteredData.filter(d => d[dbParam] >= v1 && d[dbParam] <= v2);
+                        }
+                    } else {
+                        const v = parseFloat(filterValStr);
+                        if (!isNaN(v)) {
+                            if (filterOp === 'EqualTo') filteredData = filteredData.filter(d => d[dbParam] === v);
+                            else if (filterOp === 'NotEqualTo') filteredData = filteredData.filter(d => d[dbParam] !== v);
+                            else if (filterOp === 'LessThan') filteredData = filteredData.filter(d => d[dbParam] < v);
+                            else if (filterOp === 'GreaterThan') filteredData = filteredData.filter(d => d[dbParam] > v);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("SOS API Fetch Error:", err);
+                showAttributeTable(`<h6 class="text-danger text-center mt-3">Failed to connect to Public API: ${err.message}</h6>`, true);
+                return;
+            }
+
+            logXml(`Successfully fetched ${filteredData.length} records from Open-Meteo for ${param}.`);
+
+            // Display Markers on Map
+            displaySosMarkers(filteredData, param, dbParam);
+            
+            // Display Table
+            displaySosTable(filteredData, param, dbParam);
+
+            // Display Chart
+            displaySosChart(filteredData, param, dbParam);
+        });
+    }
+
+
+    function displaySosTable(data, paramName, dbParam) {
+        if (data.length === 0) {
+            showAttributeTable('<h6 class="text-muted text-center mt-3">No observations matched your criteria.</h6>', true);
+            document.getElementById('chartContainer').style.display = 'none';
+            return;
+        }
+
+        let html = '<table class="table table-sm table-bordered table-hover mt-2"><thead class="table-dark"><tr>';
+        html += '<th>Station</th><th>Lat</th><th>Lon</th><th>Time</th><th>' + paramName + '</th>';
+        html += '</tr></thead><tbody>';
+        data.forEach((d) => {
+            html += `<tr style="cursor:pointer;" onclick="window.highlightSosMarker(${d.lat}, ${d.lon})">
+                <td>${d.station}</td><td>${d.lat}</td><td>${d.lon}</td><td>${d.timestamp}</td><td class="fw-bold text-danger">${d[dbParam]}</td>
+            </tr>`;
+        });
+        html += '</tbody></table>';
+        
+        showAttributeTable(html, true);
+        document.getElementById('chartContainer').style.display = 'block';
+    }
+
+    function displaySosChart(data, paramName, dbParam) {
+        const chartContainer = document.getElementById('chartContainer');
+        if (data.length === 0) {
+            chartContainer.style.display = 'none';
+            return;
+        }
+        
+        chartContainer.style.display = 'block';
+        const ctx = document.getElementById('sosChart').getContext('2d');
+        if (window.currentChart) {
+            window.currentChart.destroy();
+        }
+
+        const labels = data.map(d => d.station.split(' ')[0]); // e.g. "Station A"
+        const values = data.map(d => d[dbParam]);
+
+        window.currentChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: `${paramName} Values`,
+                    data: values,
+                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true }
+                },
+                plugins: {
+                    legend: { display: false },
+                    title: { display: true, text: `Bar Chart: ${paramName}` }
+                }
+            }
+        });
+    }
+
+    function displaySosMarkers(data, paramName, dbParam) {
+        if (sosVectorLayer) {
+            map.removeLayer(sosVectorLayer);
+            const idx = state.layers.indexOf(sosVectorLayer);
+            if (idx > -1) state.layers.splice(idx, 1);
+        }
+
+        const features = data.map((d, idx) => {
+            const feat = new ol.Feature({
+                geometry: new ol.geom.Point(ol.proj.fromLonLat([d.lon, d.lat])),
+                station: d.station,
+                param: paramName,
+                value: d[dbParam],
+                timestamp: d.timestamp,
+                sosIndex: idx,
+                fullData: d
+            });
+            return feat;
+        });
+
+        const vectorSource = new ol.source.Vector({ features: features });
+        sosVectorLayer = new ol.layer.Vector({
+            source: vectorSource,
+            properties: { id: Date.now(), name: `SOS: ${paramName}`, type: 'SOS' },
+            style: new ol.style.Style({
+                image: new ol.style.Circle({
+                    radius: 8,
+                    fill: new ol.style.Fill({ color: '#ffcc00' }),
+                    stroke: new ol.style.Stroke({ color: '#cc3300', width: 2 })
+                })
+            })
+        });
+
+        map.addLayer(sosVectorLayer);
+        state.layers.unshift(sosVectorLayer);
+        updateLayerManagerUI();
+
+        if (features.length > 0) {
+            try {
+                const extent = vectorSource.getExtent();
+                map.getView().fit(extent, { padding: [50, 50, 50, 50], maxZoom: 6, duration: 1000 });
+            } catch (e) { console.log(e); }
+        }
     }
 
     // Clear Panel

@@ -44,6 +44,10 @@
                                     data-bs-target="#wfs-panel" type="button" role="tab">WFS</button>
                             </li>
                             <li class="nav-item" role="presentation">
+                                <button class="nav-link fw-bold text-muted" id="sos-tab" data-bs-toggle="tab"
+                                    data-bs-target="#sos-panel" type="button" role="tab">SOS</button>
+                            </li>
+                            <li class="nav-item" role="presentation">
                                 <button class="nav-link fw-bold text-muted" id="layers-tab" data-bs-toggle="tab"
                                     data-bs-target="#layers-panel" type="button" role="tab">
                                     <i class="bi bi-layers"></i> Layers
@@ -246,6 +250,78 @@
                             </div>
                         </div>
 
+                        <!-- SOS Panel -->
+                        <div class="tab-pane fade" id="sos-panel" role="tabpanel">
+                            <div class="mb-3 mt-2">
+                                <label for="sosParameter" class="form-label fw-bold text-secondary small text-uppercase">Parameter</label>
+                                <select class="form-select shadow-sm" id="sosParameter">
+                                    <option value="PM2.5">PM2.5</option>
+                                    <option value="PM10">PM10</option>
+                                    <option value="Temperature">Temperature</option>
+                                    <option value="Humidity">Humidity</option>
+                                </select>
+                            </div>
+
+                            <!-- Spatial Subsetting -->
+                            <div class="mb-3 p-3 bg-light rounded-3 border">
+                                <label class="form-label fw-bold text-secondary small text-uppercase mb-3 d-block text-center border-bottom pb-2">Spatial Bounding Box</label>
+                                <div class="row g-2 align-items-center">
+                                    <div class="col-12 text-center">
+                                        <input type="number" step="any" class="form-control form-control-sm mx-auto text-center" id="sosBboxTop" placeholder="Top / North" style="max-width: 140px;">
+                                    </div>
+                                    <div class="col-6 text-end">
+                                        <input type="number" step="any" class="form-control form-control-sm ms-auto text-center" id="sosBboxLeft" placeholder="Left / West" style="max-width: 140px;">
+                                    </div>
+                                    <div class="col-6 text-start">
+                                        <input type="number" step="any" class="form-control form-control-sm text-center" id="sosBboxRight" placeholder="Right / East" style="max-width: 140px;">
+                                    </div>
+                                    <div class="col-12 text-center">
+                                        <input type="number" step="any" class="form-control form-control-sm mx-auto text-center" id="sosBboxBottom" placeholder="Bottom / South" style="max-width: 140px;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Temporal Subsetting -->
+                            <div class="mb-3 p-3 bg-light rounded-3 border">
+                                <label class="form-label fw-bold text-secondary small text-uppercase mb-2 d-block border-bottom pb-2">Temporal Subsetting</label>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <input type="date" class="form-control form-control-sm" id="sosTimeStart">
+                                    </div>
+                                    <div class="col-6">
+                                        <input type="date" class="form-control form-control-sm" id="sosTimeEnd">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Filtering -->
+                            <div class="mb-3 p-3 bg-light rounded-3 border">
+                                <label class="form-label fw-bold text-secondary small text-uppercase mb-2 d-block border-bottom pb-2">Filter</label>
+                                <div class="row g-2">
+                                    <div class="col-6">
+                                        <select class="form-select form-select-sm" id="sosFilterOp">
+                                            <option value="">No Filter</option>
+                                            <option value="EqualTo">Equal To</option>
+                                            <option value="NotEqualTo">Not Equal To</option>
+                                            <option value="LessThan">Less Than</option>
+                                            <option value="GreaterThan">Greater Than</option>
+                                            <option value="Between">Between (Val1,Val2)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6">
+                                        <input type="text" class="form-control form-control-sm" id="sosFilterVal" placeholder="Value(s)">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- RUN Button -->
+                            <div class="d-grid gap-2 mt-4">
+                                <button class="btn btn-warning btn-lg fw-bold shadow position-relative overflow-hidden text-dark" id="sosBtnRun">
+                                    <i class="bi bi-play-fill me-1 fs-5 align-middle"></i> RUN SOS REQUEST
+                                </button>
+                            </div>
+                        </div>
+
                         <!-- Layers Panel -->
                         <div class="tab-pane fade" id="layers-panel" role="tabpanel">
                             <div class="p-3">
@@ -284,6 +360,11 @@
                             <div class="spinner-border text-primary mb-2" role="status"></div>
                             <div class="fw-bold text-secondary">Loading Map Layer...</div>
                         </div>
+                        <!-- OpenLayers Popup -->
+                        <div id="popup" class="ol-popup" style="position: absolute; background-color: white; box-shadow: 0 1px 4px rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; border: 1px solid #cccccc; bottom: 12px; left: -50px; min-width: 280px; z-index: 1000;">
+                            <a href="#" id="popup-closer" class="ol-popup-closer" style="text-decoration: none; position: absolute; top: 2px; right: 8px; font-weight: bold; color: black; font-size: 16px;">✖</a>
+                            <div id="popup-content"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -311,7 +392,12 @@
                         <!-- Attribute Table -->
                         <div id="attributeTableContainer" class="w-100 h-100 bg-white p-3 overflow-auto"
                             style="display: none;">
-                            <h6 class="text-muted text-center mt-3">Click on a feature to view attributes...</h6>
+                            <div id="tableContentArea">
+                                <h6 class="text-muted text-center mt-3">Click on a feature to view attributes...</h6>
+                            </div>
+                            <div id="chartContainer" class="mt-4" style="display: none;">
+                                <canvas id="sosChart" style="max-height: 250px;"></canvas>
+                            </div>
                         </div>
                         <!-- Log -->
                         <textarea id="xmlResponseTextarea"
@@ -327,6 +413,7 @@
     <!-- Scripts -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/ol@v10.1.0/dist/ol.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="static/js/app.js"></script>
 </body>
 
