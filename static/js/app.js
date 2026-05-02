@@ -127,6 +127,73 @@ document.addEventListener("DOMContentLoaded", () => {
         el.infoY.value = Math.round(evt.pixel[1]);
     });
 
+    // SensorML 2.0 Generator
+    function generateSensorML(station, param) {
+        const uom = param === 'Temperature' ? '°C'
+            : param === 'Humidity' ? '%'
+            : param === 'PM2.5' ? 'µg/m³'
+            : param === 'PM10' ? 'µg/m³'
+            : 'unknown';
+        const def = param === 'Temperature' ? 'http://www.opengis.net/def/property/OGC/0/Temperature'
+            : param === 'Humidity'    ? 'http://www.opengis.net/def/property/OGC/0/RelativeHumidity'
+            : param === 'PM2.5'       ? 'http://www.opengis.net/def/property/OGC/0/PM2.5'
+            : param === 'PM10'        ? 'http://www.opengis.net/def/property/OGC/0/PM10'
+            : 'http://www.opengis.net/def/property/OGC/0/Unknown';
+        const id = station.station.replace(/[^a-zA-Z0-9]/g, '_');
+        return `<?xml version="1.0" encoding="UTF-8"?>
+<sml:PhysicalSystem
+  xmlns:sml="http://www.opengis.net/sensorml/2.0"
+  xmlns:swe="http://www.opengis.net/swe/2.0"
+  xmlns:gml="http://www.opengis.net/gml/3.2"
+  gml:id="sensor_${id}">
+  <gml:identifier codeSpace="uid">urn:sos:sensor:${id}</gml:identifier>
+  <gml:name>${station.station} - ${param} Sensor</gml:name>
+  <sml:keywords>
+    <sml:KeywordList>
+      <sml:keyword>SOS</sml:keyword>
+      <sml:keyword>Air Quality</sml:keyword>
+      <sml:keyword>${param}</sml:keyword>
+    </sml:KeywordList>
+  </sml:keywords>
+  <sml:identification>
+    <sml:IdentifierList>
+      <sml:identifier>
+        <sml:Term definition="http://www.opengis.net/def/identifier/OGC/uniqueID">
+          <sml:label>uniqueID</sml:label>
+          <sml:value>urn:sos:sensor:${id}</sml:value>
+        </sml:Term>
+      </sml:identifier>
+    </sml:IdentifierList>
+  </sml:identification>
+  <sml:outputs>
+    <sml:OutputList>
+      <sml:output name="${param}">
+        <swe:Quantity definition="${def}">
+          <swe:label>${param}</swe:label>
+          <swe:uom code="${uom}"/>
+        </swe:Quantity>
+      </sml:output>
+    </sml:OutputList>
+  </sml:outputs>
+  <sml:position>
+    <swe:Vector referenceFrame="urn:ogc:def:crs:EPSG::4326">
+      <swe:coordinate name="lat">
+        <swe:Quantity axisID="Lat">
+          <swe:uom code="deg"/>
+          <swe:value>${station.lat}</swe:value>
+        </swe:Quantity>
+      </swe:coordinate>
+      <swe:coordinate name="lon">
+        <swe:Quantity axisID="Long">
+          <swe:uom code="deg"/>
+          <swe:value>${station.lon}</swe:value>
+        </swe:Quantity>
+      </swe:coordinate>
+    </swe:Vector>
+  </sml:position>
+</sml:PhysicalSystem>`;
+    }
+
     // Simple XML formatter helper
     function formatXml(xml) {
         let formatted = '';
@@ -812,11 +879,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (el.sosBtnRun) {
         el.sosBtnRun.addEventListener('click', async () => {
             const param = el.sosParameter.value; // 'PM2.5', 'PM10', 'Temperature', 'Humidity'
-            const dbParam = param === 'PM2.5' ? 'pm25' : param.toLowerCase(); // Map to API keys
+            const dbParam = param === 'PM2.5' ? 'PM2_5' : param; // Map to sosDatabase keys
 
-            // Build query params
-            const params = new URLSearchParams();
-            
             // Spatial Subsetting
             const top = parseFloat(el.sosBboxTop.value);
             const left = parseFloat(el.sosBboxLeft.value);
@@ -844,6 +908,20 @@ document.addEventListener("DOMContentLoaded", () => {
             el.attrTableContainer.style.display = 'block';
 
             let filteredData = [];
+            let usingFallback = false;
+
+            // Helper: build fallback data from sosDatabase for this parameter
+            function buildFallbackData() {
+                usingFallback = true;
+                return sosDatabase.map(d => ({
+                    station: d.station,
+                    lat: d.lat,
+                    lon: d.lon,
+                    timestamp: d.timestamp,
+                    [dbParam]: d[dbParam] !== undefined ? d[dbParam] : null
+                }));
+            }
+
             try {
                 // Fixed set of representative stations for India
                 const stations = [
@@ -856,86 +934,101 @@ document.addEventListener("DOMContentLoaded", () => {
                     { id: 7, station: "Hyderabad", lat: 17.3850, lon: 78.4867 }
                 ];
                 
-                // For Open-Meteo Air Quality
+                // For Open-Meteo Air Quality (API key name)
                 const aqParam = param === 'PM2.5' ? 'pm2_5' : param === 'PM10' ? 'pm10' : null;
-                // For Open-Meteo Weather
+                // For Open-Meteo Weather (API key name)
                 const wxParam = param === 'Temperature' ? 'temperature_2m' : param === 'Humidity' ? 'relative_humidity_2m' : null;
                 
                 const promises = stations.map(async (st) => {
                     let stData = [];
-                    
-                    if (timeStart || timeEnd) {
-                        // Temporal subsetting -> fetch hourly history
-                        const start = timeStart || new Date().toISOString().split('T')[0];
-                        const end = timeEnd || new Date().toISOString().split('T')[0];
-                        
-                        if (aqParam) {
-                            const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${st.lat}&longitude=${st.lon}&hourly=${aqParam}&start_date=${start}&end_date=${end}`);
-                            if (!res.ok) throw new Error("Air Quality API failed");
-                            const json = await res.json();
+                    // Log SensorML for this station
+                    const sensorML = generateSensorML(st, param);
+                    logXml(`--- SensorML for ${st.station} (${param}) ---\n${formatXml(sensorML)}`);
+                    try {
+                        if (timeStart || timeEnd) {
+                            // Temporal subsetting -> fetch hourly history
+                            const start = timeStart || new Date().toISOString().split('T')[0];
+                            const end = timeEnd || new Date().toISOString().split('T')[0];
                             
-                            if (json.hourly && json.hourly.time) {
-                                for(let i=0; i<json.hourly.time.length; i++){
-                                    stData.push({
-                                        station: st.station, lat: st.lat, lon: st.lon,
-                                        timestamp: json.hourly.time[i],
-                                        [dbParam]: json.hourly[aqParam][i]
-                                    });
+                            if (aqParam) {
+                                const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${st.lat}&longitude=${st.lon}&hourly=${aqParam}&start_date=${start}&end_date=${end}`);
+                                if (!res.ok) throw new Error("Air Quality API failed");
+                                const json = await res.json();
+                                
+                                if (json.hourly && json.hourly.time) {
+                                    for (let i = 0; i < json.hourly.time.length; i++) {
+                                        stData.push({
+                                            station: st.station, lat: st.lat, lon: st.lon,
+                                            timestamp: json.hourly.time[i],
+                                            [dbParam]: json.hourly[aqParam][i]
+                                        });
+                                    }
+                                }
+                            } else if (wxParam) {
+                                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${st.lat}&longitude=${st.lon}&hourly=${wxParam}&start_date=${start}&end_date=${end}`);
+                                if (!res.ok) throw new Error("Weather API failed");
+                                const json = await res.json();
+                                
+                                if (json.hourly && json.hourly.time) {
+                                    for (let i = 0; i < json.hourly.time.length; i++) {
+                                        stData.push({
+                                            station: st.station, lat: st.lat, lon: st.lon,
+                                            timestamp: json.hourly.time[i],
+                                            [dbParam]: json.hourly[wxParam][i]
+                                        });
+                                    }
                                 }
                             }
-                        } else if (wxParam) {
-                            const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${st.lat}&longitude=${st.lon}&hourly=${wxParam}&start_date=${start}&end_date=${end}`);
-                            if (!res.ok) throw new Error("Weather API failed");
-                            const json = await res.json();
+                        } else {
+                            // No temporal subsetting -> fetch current live reading
+                            let val = null;
+                            let ts = new Date().toISOString().slice(0, 19);
                             
-                            if (json.hourly && json.hourly.time) {
-                                for(let i=0; i<json.hourly.time.length; i++){
-                                    stData.push({
-                                        station: st.station, lat: st.lat, lon: st.lon,
-                                        timestamp: json.hourly.time[i],
-                                        [dbParam]: json.hourly[wxParam][i]
-                                    });
-                                }
+                            if (aqParam) {
+                                const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${st.lat}&longitude=${st.lon}&current=${aqParam}`);
+                                if (!res.ok) throw new Error("Air Quality API failed");
+                                const json = await res.json();
+                                val = json.current[aqParam];
+                                ts = json.current.time;
+                            } else if (wxParam) {
+                                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${st.lat}&longitude=${st.lon}&current=${wxParam}`);
+                                if (!res.ok) throw new Error("Weather API failed");
+                                const json = await res.json();
+                                val = json.current[wxParam];
+                                ts = json.current.time;
                             }
+                            
+                            stData.push({
+                                station: st.station, lat: st.lat, lon: st.lon,
+                                timestamp: ts,
+                                [dbParam]: val
+                            });
                         }
-                    } else {
-                        // No temporal subsetting -> fetch current live reading
-                        let val = 0;
-                        let ts = new Date().toISOString().slice(0,19);
-                        
-                        if (aqParam) {
-                            const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${st.lat}&longitude=${st.lon}&current=${aqParam}`);
-                            if (!res.ok) throw new Error("Air Quality API failed");
-                            const json = await res.json();
-                            val = json.current[aqParam];
-                            ts = json.current.time;
-                        } else if (wxParam) {
-                            const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${st.lat}&longitude=${st.lon}&current=${wxParam}`);
-                            if (!res.ok) throw new Error("Weather API failed");
-                            const json = await res.json();
-                            val = json.current[wxParam];
-                            ts = json.current.time;
-                        }
-                        
-                        stData.push({
-                            station: st.station, lat: st.lat, lon: st.lon,
-                            timestamp: ts,
-                            [dbParam]: val
-                        });
+                    } catch (stErr) {
+                        // Per-station API failure: silently skip; fallback handled below
+                        console.warn(`API error for station ${st.station}:`, stErr.message);
                     }
                     return stData;
                 });
                 
                 const results = await Promise.all(promises);
-                filteredData = results.flat();
+                const liveData = results.flat();
 
-                // Apply UI filters to the live data
+                // If no live data came back at all, activate fallback
+                if (liveData.length === 0) {
+                    logXml(`WARNING: Live API returned no data for ${param}. Falling back to local mock data.`);
+                    filteredData = buildFallbackData();
+                } else {
+                    filteredData = liveData;
+                }
+
+                // Apply UI filters
                 // Spatial Subsetting
                 if (!isNaN(top) && !isNaN(left) && !isNaN(bottom) && !isNaN(right)) {
                     filteredData = filteredData.filter(d => d.lat <= top && d.lat >= bottom && d.lon >= left && d.lon <= right);
                 }
                 
-                // Temporal Subsetting (API returns data, but we filter precisely here)
+                // Temporal Subsetting
                 if (timeStart) filteredData = filteredData.filter(d => new Date(d.timestamp) >= new Date(timeStart));
                 if (timeEnd) filteredData = filteredData.filter(d => new Date(d.timestamp) <= new Date(timeEnd + 'T23:59:59'));
                 
@@ -959,18 +1052,24 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 }
             } catch (err) {
+                // Top-level error: activate fallback
                 console.error("SOS API Fetch Error:", err);
-                showAttributeTable(`<h6 class="text-danger text-center mt-3">Failed to connect to Public API: ${err.message}</h6>`, true);
-                return;
+                logXml(`ERROR: API failed (${err.message}). Falling back to local mock data.`);
+                filteredData = buildFallbackData();
+                usingFallback = true;
             }
 
-            logXml(`Successfully fetched ${filteredData.length} records from Open-Meteo for ${param}.`);
+            if (usingFallback) {
+                logXml(`Using fallback mock data: ${filteredData.length} records for ${param}.`);
+            } else {
+                logXml(`Successfully fetched ${filteredData.length} records from Open-Meteo for ${param}.`);
+            }
 
             // Display Markers on Map
             displaySosMarkers(filteredData, param, dbParam);
             
-            // Display Table
-            displaySosTable(filteredData, param, dbParam);
+            // Display Table (pass usingFallback flag for a banner)
+            displaySosTable(filteredData, param, dbParam, usingFallback);
 
             // Display Chart
             displaySosChart(filteredData, param, dbParam);
@@ -978,19 +1077,27 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
 
-    function displaySosTable(data, paramName, dbParam) {
+    function displaySosTable(data, paramName, dbParam, isFallback) {
         if (data.length === 0) {
             showAttributeTable('<h6 class="text-muted text-center mt-3">No observations matched your criteria.</h6>', true);
             document.getElementById('chartContainer').style.display = 'none';
             return;
         }
 
-        let html = '<table class="table table-sm table-bordered table-hover mt-2"><thead class="table-dark"><tr>';
+        let html = '';
+        if (isFallback) {
+            html += '<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:0.85rem;">'
+                  + '<strong>Live API unavailable.</strong> Showing local mock/fallback data.'
+                  + '</div>';
+        }
+
+        html += '<table class="table table-sm table-bordered table-hover mt-2"><thead class="table-dark"><tr>';
         html += '<th>Station</th><th>Lat</th><th>Lon</th><th>Time</th><th>' + paramName + '</th>';
         html += '</tr></thead><tbody>';
         data.forEach((d) => {
+            const val = d[dbParam] !== undefined && d[dbParam] !== null ? d[dbParam] : 'N/A';
             html += `<tr style="cursor:pointer;" onclick="window.highlightSosMarker(${d.lat}, ${d.lon})">
-                <td>${d.station}</td><td>${d.lat}</td><td>${d.lon}</td><td>${d.timestamp}</td><td class="fw-bold text-danger">${d[dbParam]}</td>
+                <td>${d.station}</td><td>${d.lat}</td><td>${d.lon}</td><td>${d.timestamp}</td><td class="fw-bold text-danger">${val}</td>
             </tr>`;
         });
         html += '</tbody></table>';
