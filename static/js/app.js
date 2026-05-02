@@ -46,7 +46,15 @@ document.addEventListener("DOMContentLoaded", () => {
         wfsBtnRun: document.getElementById('wfsBtnRun'),
 
         // SOS Elements
+        sosUrlInput: document.getElementById('sosServerUrl'),
+        sosBtnOk: document.getElementById('sosBtnOk'),
+        sosLoadingIndicator: document.getElementById('sosLoadingIndicator'),
+        sosRequestType: document.getElementById('sosRequestType'),
+        sosProcedureSelect: document.getElementById('sosProcedureSelect'),
         sosParameter: document.getElementById('sosParameter'),
+        sosSpatialGroup: document.getElementById('sosSpatialGroup'),
+        sosTemporalGroup: document.getElementById('sosTemporalGroup'),
+        sosFilterGroup: document.getElementById('sosFilterGroup'),
         sosBboxTop: document.getElementById('sosBboxTop'),
         sosBboxLeft: document.getElementById('sosBboxLeft'),
         sosBboxRight: document.getElementById('sosBboxRight'),
@@ -55,8 +63,7 @@ document.addEventListener("DOMContentLoaded", () => {
         sosTimeEnd: document.getElementById('sosTimeEnd'),
         sosFilterOp: document.getElementById('sosFilterOp'),
         sosFilterVal: document.getElementById('sosFilterVal'),
-        sosBtnRun: document.getElementById('sosBtnRun'),
-        sosBtnSensorML: document.getElementById('sosBtnSensorML')
+        sosBtnRun: document.getElementById('sosBtnRun')
     };
 
     // Mock SOS Database
@@ -875,204 +882,262 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // SOS Logic
+    // SOS UI Visibility Logic
+    if (el.sosRequestType) {
+        el.sosRequestType.addEventListener('change', () => {
+            const type = el.sosRequestType.value;
+            if (type === 'GetCapabilities') {
+                el.sosProcedureSelect.parentElement.style.display = 'none';
+                el.sosParameter.parentElement.style.display = 'none';
+                el.sosSpatialGroup.style.display = 'none';
+                el.sosTemporalGroup.style.display = 'none';
+                el.sosFilterGroup.style.display = 'none';
+            } else if (type === 'DescribeSensor') {
+                el.sosProcedureSelect.parentElement.style.display = 'block';
+                el.sosParameter.parentElement.style.display = 'none';
+                el.sosSpatialGroup.style.display = 'none';
+                el.sosTemporalGroup.style.display = 'none';
+                el.sosFilterGroup.style.display = 'none';
+            } else {
+                el.sosProcedureSelect.parentElement.style.display = 'block';
+                el.sosParameter.parentElement.style.display = 'block';
+                el.sosSpatialGroup.style.display = 'block';
+                el.sosTemporalGroup.style.display = 'block';
+                el.sosFilterGroup.style.display = 'block';
+            }
+        });
+        // Initial trigger
+        el.sosRequestType.dispatchEvent(new Event('change'));
+    }
+
+    // SOS GetCapabilities (Triggered by OK button)
+    if (el.sosBtnOk) {
+        el.sosBtnOk.addEventListener('click', async () => {
+            let url = el.sosUrlInput.value.trim();
+            if (!url) {
+                alert("Please enter a valid SOS Server URL.");
+                return;
+            }
+
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                url = "http://" + url;
+                el.sosUrlInput.value = url;
+            }
+
+            const getCapUrl = `${url}?request=GetCapabilities&service=SOS&version=1.0.0`;
+
+            // UI States
+            el.sosBtnOk.disabled = true;
+            el.sosLoadingIndicator.classList.remove('d-none');
+            el.sosProcedureSelect.innerHTML = '<option value="">Loading...</option>';
+            el.sosProcedureSelect.disabled = true;
+            el.sosBtnRun.disabled = true;
+
+            logXml(`Sending SOS GetCapabilities request to:\n${url}`, true);
+
+            try {
+                const resp = await fetch(getCapUrl);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+
+                const xmlText = await resp.text();
+
+                logXml(`Received SOS GetCapabilities response. Parsing XML...`);
+                logXml(`${formatXml(xmlText)}`);
+
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(xmlText, "text/xml");
+
+                if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
+                    throw new Error("Invalid XML returned.");
+                }
+
+                // Extract Procedures from Offerings
+                const offerings = Array.from(xmlDoc.getElementsByTagNameNS("*", 'ObservationOffering'));
+                let procedures = new Set();
+                
+                offerings.forEach(off => {
+                    const procNodes = Array.from(off.getElementsByTagNameNS("*", 'procedure'));
+                    procNodes.forEach(p => {
+                        let procName = p.getAttribute('xlink:href') || p.textContent;
+                        if (procName) {
+                            const parts = procName.split(':');
+                            const simpleName = parts[parts.length - 1];
+                            procedures.add(simpleName);
+                        }
+                    });
+                });
+
+                let options = '<option value="ALL" selected>-- All Procedures --</option>';
+                procedures.forEach(p => {
+                    options += `<option value="${p}">${p}</option>`;
+                });
+
+                if (procedures.size > 0) {
+                    el.sosProcedureSelect.innerHTML = options;
+                    el.sosProcedureSelect.disabled = false;
+                    el.sosBtnRun.disabled = false;
+                    logXml(`Successfully extracted ${procedures.size} procedures from document.`);
+                } else {
+                    el.sosProcedureSelect.innerHTML = '<option value="">No procedures found</option>';
+                    logXml(`No procedures found in SOS GetCapabilities document.`);
+                }
+
+            } catch (err) {
+                console.error(err);
+                logXml(`Error: ${err.message}`);
+                el.sosProcedureSelect.innerHTML = '<option value="">Error fetching</option>';
+            } finally {
+                el.sosBtnOk.disabled = false;
+                el.sosLoadingIndicator.classList.add('d-none');
+            }
+        });
+    }
+
+    // Main SOS RUN Logic
     if (el.sosBtnRun) {
         el.sosBtnRun.addEventListener('click', async () => {
-            const param = el.sosParameter.value; // 'PM2.5', 'PM10', 'Temperature', 'Humidity'
-            const dbParam = param === 'PM2.5' ? 'PM2_5' : param; // Map to sosDatabase keys
+            const reqType = el.sosRequestType.value;
+            const sosUrl = el.sosUrlInput.value.trim() || "http://localhost:8090/istsos/mumbai";
 
-            // Spatial Subsetting
+            if (reqType === 'GetCapabilities') {
+                el.sosBtnOk.click(); // Reuse existing logic
+                return;
+            }
+
+            const procedure = el.sosProcedureSelect.value;
+
+            if (reqType === 'DescribeSensor') {
+                if (!procedure || procedure === 'ALL') {
+                    alert("Please select a specific procedure for DescribeSensor.");
+                    return;
+                }
+                const url = `${sosUrl}?service=SOS&version=1.0.0&request=DescribeSensor&procedure=${procedure}&outputFormat=text/xml;subtype="sensorML/1.0.1"`;
+                logXml(`Requesting SensorML for: ${procedure}`, true);
+                try {
+                    const response = await fetch(url);
+                    const xml = await response.text();
+                    logXml(formatXml(xml));
+                    el.xmlPanel.style.display = 'block';
+                    el.attrTableContainer.style.display = 'none';
+                    logsVisible = true;
+                    updateToggleLogBtn();
+                } catch (err) { logXml(`Error: ${err.message}`); }
+                return;
+            }
+
+            // GetObservation Logic
+            const param = el.sosParameter.value; 
+            const urnMapping = {
+                'PM2.5': 'urn:ogc:def:parameter:x-istsos:1.0:meteo:air:PM2.5',
+                'PM10': 'urn:ogc:def:parameter:x-istsos:1.0:meteo:air:PM10',
+                'Temperature': 'urn:ogc:def:parameter:x-istsos:1.0:meteo:air:temperature',
+                'Humidity': 'urn:ogc:def:parameter:x-istsos:1.0:meteo:air:humidity'
+            };
+            const dbParam = param;
+            const observedProperty = urnMapping[param];
+
             const top = parseFloat(el.sosBboxTop.value);
             const left = parseFloat(el.sosBboxLeft.value);
             const bottom = parseFloat(el.sosBboxBottom.value);
             const right = parseFloat(el.sosBboxRight.value);
 
-            // Temporal Subsetting
             const timeStart = el.sosTimeStart.value;
             const timeEnd = el.sosTimeEnd.value;
 
-            // Value Filtering
             const filterOp = el.sosFilterOp.value;
             const filterValStr = el.sosFilterVal.value.trim();
-            
-            logXml(`Fetching live data from Open-Meteo public APIs for ${param}...`);
+
+            logXml(`Fetching Mumbai SOS data for ${param}...`, true);
             
             let tableArea = document.getElementById('tableContentArea');
             if (!tableArea) {
                 el.attrTableContainer.innerHTML = '<div id="tableContentArea"></div><div id="chartContainer" class="mt-4" style="display: none;"><canvas id="sosChart" style="max-height: 250px;"></canvas></div>';
                 tableArea = document.getElementById('tableContentArea');
             }
-            tableArea.innerHTML = '<div class="text-center mt-3"><div class="spinner-border spinner-border-sm text-primary"></div> Fetching LIVE data from API...</div>';
+            tableArea.innerHTML = '<div class="text-center mt-3"><div class="spinner-border spinner-border-sm text-primary"></div> Querying istSOS Server...</div>';
             document.getElementById('chartContainer').style.display = 'none';
             el.xmlPanel.style.display = 'none';
             el.attrTableContainer.style.display = 'block';
 
-            let filteredData = [];
-            let usingFallback = false;
-
-            // Helper: build fallback data from sosDatabase for this parameter
-            function buildFallbackData() {
-                usingFallback = true;
-                return sosDatabase.map(d => ({
-                    station: d.station,
-                    lat: d.lat,
-                    lon: d.lon,
-                    timestamp: d.timestamp,
-                    [dbParam]: d[dbParam] !== undefined ? d[dbParam] : null
-                }));
-            }
-
             try {
-                // Fixed set of representative stations for India
-                const stations = [
-                    { id: 1, station: "Delhi", lat: 28.7041, lon: 77.1025 },
-                    { id: 2, station: "Mumbai", lat: 19.0760, lon: 72.8777 },
-                    { id: 3, station: "Bengaluru", lat: 12.9716, lon: 77.5946 },
-                    { id: 4, station: "Kolkata", lat: 22.5726, lon: 88.3639 },
-                    { id: 5, station: "Chennai", lat: 13.0827, lon: 80.2707 },
-                    { id: 6, station: "Ahmedabad", lat: 23.0225, lon: 72.5714 },
-                    { id: 7, station: "Hyderabad", lat: 17.3850, lon: 78.4867 }
-                ];
+                let queryUrl = `${sosUrl}?service=SOS&version=1.0.0&request=GetObservation&offering=temporary&responseFormat=application/json&observedProperty=${observedProperty}`;
                 
-                // For Open-Meteo Air Quality (API key name)
-                const aqParam = param === 'PM2.5' ? 'pm2_5' : param === 'PM10' ? 'pm10' : null;
-                // For Open-Meteo Weather (API key name)
-                const wxParam = param === 'Temperature' ? 'temperature_2m' : param === 'Humidity' ? 'relative_humidity_2m' : null;
-                
-                const promises = stations.map(async (st) => {
-                    let stData = [];
-                    // Log SensorML for this station
-                    const sensorML = generateSensorML(st, param);
-                    logXml(`--- SensorML for ${st.station} (${param}) ---\n${formatXml(sensorML)}`);
-                    try {
-                        if (timeStart || timeEnd) {
-                            // Temporal subsetting -> fetch hourly history
-                            const start = timeStart || new Date().toISOString().split('T')[0];
-                            const end = timeEnd || new Date().toISOString().split('T')[0];
-                            
-                            if (aqParam) {
-                                const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${st.lat}&longitude=${st.lon}&hourly=${aqParam}&start_date=${start}&end_date=${end}`);
-                                if (!res.ok) throw new Error("Air Quality API failed");
-                                const json = await res.json();
-                                
-                                if (json.hourly && json.hourly.time) {
-                                    for (let i = 0; i < json.hourly.time.length; i++) {
-                                        stData.push({
-                                            station: st.station, lat: st.lat, lon: st.lon,
-                                            timestamp: json.hourly.time[i],
-                                            [dbParam]: json.hourly[aqParam][i]
-                                        });
-                                    }
-                                }
-                            } else if (wxParam) {
-                                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${st.lat}&longitude=${st.lon}&hourly=${wxParam}&start_date=${start}&end_date=${end}`);
-                                if (!res.ok) throw new Error("Weather API failed");
-                                const json = await res.json();
-                                
-                                if (json.hourly && json.hourly.time) {
-                                    for (let i = 0; i < json.hourly.time.length; i++) {
-                                        stData.push({
-                                            station: st.station, lat: st.lat, lon: st.lon,
-                                            timestamp: json.hourly.time[i],
-                                            [dbParam]: json.hourly[wxParam][i]
-                                        });
-                                    }
-                                }
-                            }
-                        } else {
-                            // No temporal subsetting -> fetch current live reading
-                            let val = null;
-                            let ts = new Date().toISOString().slice(0, 19);
-                            
-                            if (aqParam) {
-                                const res = await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${st.lat}&longitude=${st.lon}&current=${aqParam}`);
-                                if (!res.ok) throw new Error("Air Quality API failed");
-                                const json = await res.json();
-                                val = json.current[aqParam];
-                                ts = json.current.time;
-                            } else if (wxParam) {
-                                const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${st.lat}&longitude=${st.lon}&current=${wxParam}`);
-                                if (!res.ok) throw new Error("Weather API failed");
-                                const json = await res.json();
-                                val = json.current[wxParam];
-                                ts = json.current.time;
-                            }
-                            
-                            stData.push({
-                                station: st.station, lat: st.lat, lon: st.lon,
-                                timestamp: ts,
-                                [dbParam]: val
-                            });
-                        }
-                    } catch (stErr) {
-                        // Per-station API failure: silently skip; fallback handled below
-                        console.warn(`API error for station ${st.station}:`, stErr.message);
-                    }
-                    return stData;
-                });
-                
-                const results = await Promise.all(promises);
-                const liveData = results.flat();
-
-                // If no live data came back at all, activate fallback
-                if (liveData.length === 0) {
-                    logXml(`WARNING: Live API returned no data for ${param}. Falling back to local mock data.`);
-                    filteredData = buildFallbackData();
-                } else {
-                    filteredData = liveData;
+                if (procedure && procedure !== 'ALL') {
+                    queryUrl += `&procedure=${procedure}`;
                 }
 
-                // Apply UI filters
-                // Spatial Subsetting
+                if (timeStart && timeEnd) {
+                    queryUrl += `&eventTime=${timeStart}T00:00:00+05:30/${timeEnd}T23:59:59+05:30`;
+                }
+
+                logXml(`Request URL: ${queryUrl}`);
+                const response = await fetch(queryUrl);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                
+                const json = await response.json();
+                
+                if (!json.ObservationCollection || !json.ObservationCollection.member) {
+                    throw new Error("Invalid SOS response structure");
+                }
+
+                let allRecords = [];
+                const stationsInfo = {
+                    "Colaba": { lat: 18.9067, lon: 72.8147 },
+                    "Bandra": { lat: 19.0596, lon: 72.8295 },
+                    "Andheri": { lat: 19.1136, lon: 72.8697 },
+                    "Powai": { lat: 19.1176, lon: 72.9060 },
+                    "Dadar": { lat: 19.0178, lon: 72.8478 },
+                    "Kurla": { lat: 19.0726, lon: 72.8844 },
+                    "Chembur": { lat: 19.0522, lon: 72.8995 },
+                    "Malad": { lat: 19.1864, lon: 72.8493 },
+                    "Borivali": { lat: 19.2317, lon: 72.8524 },
+                    "Thane": { lat: 19.2183, lon: 72.9781 }
+                };
+
+                json.ObservationCollection.member.forEach(m => {
+                    const stationName = m.name;
+                    const loc = stationsInfo[stationName] || { lat: 0, lon: 0 };
+                    
+                    if (m.result && m.result.DataArray && m.result.DataArray.values) {
+                        m.result.DataArray.values.forEach(row => {
+                            allRecords.push({
+                                station: stationName,
+                                lat: loc.lat,
+                                lon: loc.lon,
+                                timestamp: row[0],
+                                [dbParam]: parseFloat(row[1])
+                            });
+                        });
+                    }
+                });
+
+                let filteredData = allRecords;
+
+                // Apply Spatial Filter
                 if (!isNaN(top) && !isNaN(left) && !isNaN(bottom) && !isNaN(right)) {
                     filteredData = filteredData.filter(d => d.lat <= top && d.lat >= bottom && d.lon >= left && d.lon <= right);
                 }
                 
-                // Temporal Subsetting
-                if (timeStart) filteredData = filteredData.filter(d => new Date(d.timestamp) >= new Date(timeStart));
-                if (timeEnd) filteredData = filteredData.filter(d => new Date(d.timestamp) <= new Date(timeEnd + 'T23:59:59'));
-                
-                // Value Filtering
+                // Apply Value Filter
                 if (filterOp && filterValStr) {
-                    if (filterOp === 'Between') {
-                        const parts = filterValStr.split(',');
-                        if (parts.length === 2) {
-                            const v1 = parseFloat(parts[0]);
-                            const v2 = parseFloat(parts[1]);
-                            if (!isNaN(v1) && !isNaN(v2)) filteredData = filteredData.filter(d => d[dbParam] >= v1 && d[dbParam] <= v2);
-                        }
-                    } else {
-                        const v = parseFloat(filterValStr);
-                        if (!isNaN(v)) {
-                            if (filterOp === 'EqualTo') filteredData = filteredData.filter(d => d[dbParam] === v);
-                            else if (filterOp === 'NotEqualTo') filteredData = filteredData.filter(d => d[dbParam] !== v);
-                            else if (filterOp === 'LessThan') filteredData = filteredData.filter(d => d[dbParam] < v);
-                            else if (filterOp === 'GreaterThan') filteredData = filteredData.filter(d => d[dbParam] > v);
-                        }
+                    const v = parseFloat(filterValStr);
+                    if (!isNaN(v)) {
+                        if (filterOp === 'EqualTo') filteredData = filteredData.filter(d => d[dbParam] === v);
+                        else if (filterOp === 'LessThan') filteredData = filteredData.filter(d => d[dbParam] < v);
+                        else if (filterOp === 'GreaterThan') filteredData = filteredData.filter(d => d[dbParam] > v);
                     }
                 }
+
+                logXml(`Successfully retrieved ${filteredData.length} records.`);
+
+                displaySosMarkers(filteredData, param, dbParam);
+                displaySosTable(filteredData, param, dbParam, false);
+                displaySosChart(filteredData, param, dbParam);
+
             } catch (err) {
-                // Top-level error: activate fallback
-                console.error("SOS API Fetch Error:", err);
-                logXml(`ERROR: API failed (${err.message}). Falling back to local mock data.`);
-                filteredData = buildFallbackData();
-                usingFallback = true;
+                logXml(`ERROR: ${err.message}`);
+                tableArea.innerHTML = `<div class="alert alert-danger mt-3"><strong>SOS Error:</strong> ${err.message}<br><small>Ensure the istSOS server is running at http://localhost:8090</small></div>`;
             }
-
-            if (usingFallback) {
-                logXml(`Using fallback mock data: ${filteredData.length} records for ${param}.`);
-            } else {
-                logXml(`Successfully fetched ${filteredData.length} records from Open-Meteo for ${param}.`);
-            }
-
-            // Display Markers on Map
-            displaySosMarkers(filteredData, param, dbParam);
-            
-            // Display Table (pass usingFallback flag for a banner)
-            displaySosTable(filteredData, param, dbParam, usingFallback);
-
-            // Display Chart
-            displaySosChart(filteredData, param, dbParam);
         });
     }
 
@@ -1084,23 +1149,21 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        let html = '';
-        if (isFallback) {
-            html += '<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:0.85rem;">'
-                  + '<strong>Live API unavailable.</strong> Showing local mock/fallback data.'
-                  + '</div>';
-        }
-
-        html += '<table class="table table-sm table-bordered table-hover mt-2"><thead class="table-dark"><tr>';
+        let html = '<table class="table table-sm table-bordered table-hover mt-2"><thead class="table-dark"><tr>';
         html += '<th>Station</th><th>Lat</th><th>Lon</th><th>Time</th><th>' + paramName + '</th>';
         html += '</tr></thead><tbody>';
-        data.forEach((d) => {
+        
+        // Limit table to 50 rows for performance, but show all in chart
+        const displayData = data.slice(0, 50);
+        displayData.forEach((d) => {
             const val = d[dbParam] !== undefined && d[dbParam] !== null ? d[dbParam] : 'N/A';
+            const timeStr = d.timestamp.replace('T', ' ').split('+')[0];
             html += `<tr style="cursor:pointer;" onclick="window.highlightSosMarker(${d.lat}, ${d.lon})">
-                <td>${d.station}</td><td>${d.lat}</td><td>${d.lon}</td><td>${d.timestamp}</td><td class="fw-bold text-danger">${val}</td>
+                <td>${d.station}</td><td>${d.lat}</td><td>${d.lon}</td><td style="font-size:0.8rem">${timeStr}</td><td class="fw-bold text-primary">${val}</td>
             </tr>`;
         });
         html += '</tbody></table>';
+        if (data.length > 50) html += `<p class="text-muted small text-center">Showing first 50 of ${data.length} records</p>`;
         
         showAttributeTable(html, true);
         document.getElementById('chartContainer').style.display = 'block';
@@ -1119,18 +1182,26 @@ document.addEventListener("DOMContentLoaded", () => {
             window.currentChart.destroy();
         }
 
-        const labels = data.map(d => d.station.split(' ')[0]); // e.g. "Station A"
-        const values = data.map(d => d[dbParam]);
+        // Aggregate data for chart: average per station
+        const stationAverages = {};
+        data.forEach(d => {
+            if (!stationAverages[d.station]) stationAverages[d.station] = { sum: 0, count: 0 };
+            stationAverages[d.station].sum += d[dbParam];
+            stationAverages[d.station].count += 1;
+        });
+
+        const labels = Object.keys(stationAverages);
+        const values = labels.map(l => (stationAverages[l].sum / stationAverages[l].count).toFixed(2));
 
         window.currentChart = new Chart(ctx, {
             type: 'bar',
             data: {
                 labels: labels,
                 datasets: [{
-                    label: `${paramName} Values`,
+                    label: `Avg ${paramName}`,
                     data: values,
-                    backgroundColor: 'rgba(54, 162, 235, 0.7)',
-                    borderColor: 'rgba(54, 162, 235, 1)',
+                    backgroundColor: 'rgba(13, 110, 253, 0.7)',
+                    borderColor: 'rgb(13, 110, 253)',
                     borderWidth: 1,
                     borderRadius: 4
                 }]
@@ -1138,12 +1209,10 @@ document.addEventListener("DOMContentLoaded", () => {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                scales: {
-                    y: { beginAtZero: true }
-                },
+                scales: { y: { beginAtZero: true } },
                 plugins: {
                     legend: { display: false },
-                    title: { display: true, text: `Bar Chart: ${paramName}` }
+                    title: { display: true, text: `Average ${paramName} across Mumbai Stations` }
                 }
             }
         });
@@ -1156,7 +1225,15 @@ document.addEventListener("DOMContentLoaded", () => {
             if (idx > -1) state.layers.splice(idx, 1);
         }
 
-        const features = data.map((d, idx) => {
+        // Only show latest unique station markers on map to avoid clutter
+        const latestByStation = {};
+        data.forEach(d => {
+            if (!latestByStation[d.station] || new Date(d.timestamp) > new Date(latestByStation[d.station].timestamp)) {
+                latestByStation[d.station] = d;
+            }
+        });
+
+        const features = Object.values(latestByStation).map((d, idx) => {
             const feat = new ol.Feature({
                 geometry: new ol.geom.Point(ol.proj.fromLonLat([d.lon, d.lat])),
                 station: d.station,
@@ -1175,9 +1252,9 @@ document.addEventListener("DOMContentLoaded", () => {
             properties: { id: Date.now(), name: `SOS: ${paramName}`, type: 'SOS' },
             style: new ol.style.Style({
                 image: new ol.style.Circle({
-                    radius: 8,
-                    fill: new ol.style.Fill({ color: '#ffcc00' }),
-                    stroke: new ol.style.Stroke({ color: '#cc3300', width: 2 })
+                    radius: 10,
+                    fill: new ol.style.Fill({ color: '#0dcaf0' }),
+                    stroke: new ol.style.Stroke({ color: '#fff', width: 2 })
                 })
             })
         });
@@ -1189,10 +1266,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (features.length > 0) {
             try {
                 const extent = vectorSource.getExtent();
-                map.getView().fit(extent, { padding: [50, 50, 50, 50], maxZoom: 6, duration: 1000 });
+                map.getView().fit(extent, { padding: [100, 100, 100, 100], maxZoom: 12, duration: 1000 });
             } catch (e) { console.log(e); }
         }
     }
+
 
     // Clear Panel
     el.btnClearXml.addEventListener('click', () => el.xmlPanel.value = "");
